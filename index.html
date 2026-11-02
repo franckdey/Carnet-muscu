@@ -145,7 +145,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v1.4</span></h1>
+    <h1>Carnet de muscu <span class="ver">v1.5</span></h1>
     <span class="sync" id="sync">Chargement…</span>
   </header>
   <main id="view"></main>
@@ -319,6 +319,8 @@ const plans = () => list().filter(s => s.prevue).sort((a,b)=>b.debut-a.debut);
 const finished = () => list().filter(s => s.terminee).sort((a,b)=>b.debut-a.debut);
 const isCardio = n => byName(n)?.groupe === "Cardio";
 const fmtSet = (n,x) => isCardio(n) ? `${x.reps} min${x.kg!==""&&x.kg!=null?` · ${fmtKg(+x.kg)} km`:""}${x.kcal?` · ${x.kcal} kcal`:""}` : `${x.reps}×${fmtKg(+x.kg||0)}`;
+const exKm = e => (e.km!==undefined && e.km!=="") ? (+e.km||0) : (e.series||[]).reduce((u,x)=>u+(+x.kg||0),0);
+const cardioTot = e => `${exKm(e)?` · ${fmtKg(exKm(e))} km`:""}${exKcal(e)?` · ${exKcal(e)} kcal`:""}`;
 const exKcal = e => (e.kcal!==undefined && e.kcal!=="") ? (+e.kcal||0) : (e.series||[]).reduce((u,x)=>u+(+x.kcal||0),0);
 const kcal = s => (s.exercices||[]).reduce((t,e)=>t+(isCardio(e.nom)?exKcal(e):0),0);
 const volume = s => (s.exercices||[]).reduce((t,e)=>t+(isCardio(e.nom)?0:(e.series||[]).reduce((u,x)=>u+(+x.reps||0)*(+x.kg||0),0)),0);
@@ -327,7 +329,7 @@ function lastFor(name, excludeId){
   const k = key(name), same = e => key(e.nom)===k;
   const s = finished().find(s => s.id!==excludeId && (s.exercices||[]).some(same));
   if (!s) return null; const fe = s.exercices.find(same);
-  return { date:s.debut, series:fe.series.filter(x=>x.reps), kcal: isCardio(name) ? exKcal(fe) : 0 };
+  return { date:s.debut, series:fe.series.filter(x=>x.reps), kcal: isCardio(name) ? exKcal(fe) : 0, km: isCardio(name) ? exKm(fe) : 0, tot: isCardio(name) ? cardioTot(fe) : "" };
 }
 function sessName(s){
   if (s.nom) return s.nom;
@@ -444,24 +446,24 @@ function viewPlans(){
 }
 
 function exCard(s,e,i){
-  const last = lastFor(e.nom, s.id);
-  const lastTxt = last ? `Dernière fois (${fmtShort(last.date)}) : ${last.series.map(x=>fmtSet(e.nom,x)).join(" · ")}` : "Première fois sur cet exercice";
-  const c = isCardio(e.nom);
+  const last = lastFor(e.nom, s.id), c = isCardio(e.nom);
+  const lastTxt = last ? `Dernière fois (${fmtShort(last.date)}) : ${last.series.map(x=>fmtSet(e.nom,c?{...x,kg:"",kcal:""}:x)).join(" · ")}${last.tot}` : "Première fois sur cet exercice";
   return `<section class="ex">
     <div class="ex-top"><span class="ex-title">${icon(e.nom)}<span class="ex-name">${esc(key(e.nom))}${subOf(e.nom)?`<span class="en-sub">${esc(subOf(e.nom))}</span>`:""}</span></span><button class="x" title="Retirer l’exercice" aria-label="Retirer ${esc(e.nom)}" data-act="rmex" data-i="${i}">✕</button></div>
     <div class="last">${esc(lastTxt)}</div>
     <div class="sets">
-      <span class="h">#</span><span class="h">${c?"Minutes":"Reps"}</span><span class="h">${c?"Km":"Kg"}</span><span></span><span class="h">Fait</span><span></span>
+      <span class="h">#</span><span class="h">${c?"Minutes":"Reps"}</span><span class="h">${c?"":"Kg"}</span><span></span><span class="h">Fait</span><span></span>
       ${(e.series||[]).map((x,j)=>{ const p = last?.series[j];
         return `<span class="idx">${j+1}</span>
         <input id="r-${i}-${j}" inputmode="numeric" value="${esc(x.reps)}" placeholder="${p?esc(p.reps):""}" data-f="reps" data-i="${i}" data-j="${j}" aria-label="${c?"Minutes":"Répétitions"} série ${j+1}">
-        <input id="k-${i}-${j}" inputmode="decimal" value="${esc(x.kg)}" placeholder="${p?esc(p.kg):""}" data-f="kg" data-i="${i}" data-j="${j}" aria-label="${c?"Kilomètres":"Kilos"} série ${j+1}">
+        ${c ? `<span></span>` : `<input id="k-${i}-${j}" inputmode="decimal" value="${esc(x.kg)}" placeholder="${p?esc(p.kg):""}" data-f="kg" data-i="${i}" data-j="${j}" aria-label="Kilos série ${j+1}">`}
         <button class="copy" ${j===0?"disabled":""} data-act="copyset" data-i="${i}" data-j="${j}" title="Recopier la série ${j}" aria-label="Recopier la série ${j} dans la série ${j+1}">↓</button>
         <button class="done" aria-pressed="${!!x.fait}" data-act="done" data-i="${i}" data-j="${j}" aria-label="Série ${j+1} faite">✓</button>
         <button class="x" data-act="rmset" data-i="${i}" data-j="${j}" aria-label="Supprimer la série ${j+1}">✕</button>`; }).join("")}
     </div>
     <button class="btn ghost small" data-act="addset" data-i="${i}">+ Série</button>
-    ${c ? `<div class="ex-kcal"><label for="kcal-${i}">Calories de l’activité</label><input id="kcal-${i}" inputmode="numeric" data-ekcal="${i}" value="${esc(e.kcal!==undefined&&e.kcal!==""?e.kcal:(exKcal(e)||""))}" placeholder="${last&&last.kcal?esc(last.kcal):"kcal"}"><span>kcal</span></div>` : ""}
+    ${c ? `<div class="ex-kcal"><label for="km-${i}">Distance de l’activité</label><input id="km-${i}" inputmode="decimal" data-efield="km" data-i="${i}" value="${esc(e.km!==undefined&&e.km!==""?e.km:(exKm(e)||""))}" placeholder="${last&&last.km?esc(last.km):"km"}"><span>km</span></div>
+    <div class="ex-kcal"><label for="kcal-${i}">Calories de l’activité</label><input id="kcal-${i}" inputmode="numeric" data-efield="kcal" data-i="${i}" value="${esc(e.kcal!==undefined&&e.kcal!==""?e.kcal:(exKcal(e)||""))}" placeholder="${last&&last.kcal?esc(last.kcal):"kcal"}"><span>kcal</span></div>` : ""}
     ${c ? `<textarea id="note-${i}" class="ex-note" data-note="${i}" rows="2" placeholder="Commentaire (programme, niveau, ressenti…)" aria-label="Commentaire pour ${esc(key(e.nom))}">${esc(e.note||"")}</textarea>` : ""}
   </section>`;
 }
@@ -481,7 +483,7 @@ function viewHist(){
           <span class="num" style="text-align:right"><b>${fmtKg(volume(s))} kg</b><br><span class="muted" style="font-size:.85rem">${nbSeries(s)} séries${kcal(s)?` · ${kcal(s)} kcal`:""}</span></span>
         </button>
         ${open ? `<div class="h-body">
-          ${(s.exercices||[]).map(e=>`<div class="h-ex"><span class="h-name">${icon(e.nom,"ico-s")}<span>${esc(key(e.nom))}${subOf(e.nom)?` <span class="en">${esc(subOf(e.nom))}</span>`:""}</span></span><span class="num">${(e.series||[]).filter(x=>x.reps).map(x=>fmtSet(e.nom,{...x,kcal:""})).join(" · ")||"—"}${isCardio(e.nom)&&exKcal(e)?` · ${exKcal(e)} kcal`:""}</span></div>${e.note?`<p class="h-note">${esc(e.note)}</p>`:""}`).join("")}
+          ${(s.exercices||[]).map(e=>`<div class="h-ex"><span class="h-name">${icon(e.nom,"ico-s")}<span>${esc(key(e.nom))}${subOf(e.nom)?` <span class="en">${esc(subOf(e.nom))}</span>`:""}</span></span><span class="num">${(e.series||[]).filter(x=>x.reps).map(x=>fmtSet(e.nom,isCardio(e.nom)?{...x,kg:"",kcal:""}:x)).join(" · ")||"—"}${isCardio(e.nom)?cardioTot(e):""}</span></div>${e.note?`<p class="h-note">${esc(e.note)}</p>`:""}`).join("")}
           <div class="row" style="justify-content:flex-end;margin-top:6px">
             ${current() ? `<span class="muted" style="font-size:.85rem;margin-right:auto">Termine la séance en cours pour reprendre celle-ci.</span>` : `<button class="btn small" data-act="repeat" data-id="${s.id}">Refaire cette séance</button><button class="btn ghost small" style="margin-right:auto" data-act="resume" data-id="${s.id}">Reprendre</button>`}
             ${confirmDel===s.id ? `<button class="btn danger small" data-act="del" data-id="${s.id}">Confirmer la suppression</button>` : `<button class="btn ghost small" data-act="askdel" data-id="${s.id}">Supprimer</button>`}
@@ -517,7 +519,7 @@ function viewProg(){
   if (isCardio(progEx)){
     const pts = f.map(s=>{ const e=(s.exercices||[]).find(e=>key(e.nom)===progEx); if(!e) return null;
       const ser=(e.series||[]).filter(x=>x.reps); if(!ser.length) return null;
-      const min = ser.reduce((t,x)=>t+(+x.reps||0),0), km = ser.reduce((t,x)=>t+(+x.kg||0),0), cal = exKcal(e);
+      const min = ser.reduce((t,x)=>t+(+x.reps||0),0), km = exKm(e), cal = exKcal(e);
       return {t:s.debut, min, km, cal};
     }).filter(Boolean);
     const useKm = pts.some(p=>p.km>0);
@@ -626,7 +628,7 @@ document.addEventListener("click", ev => {
       save(s.id,true); render(); break; }
     case "rmset": sessions[s.id].exercices[i].series.splice(j,1); save(s.id,true); render(); break;
     case "done": { const x = sessions[s.id].exercices[i].series[j];
-      { const p = lastFor(sessions[s.id].exercices[i].nom, s.id)?.series[j]; if(p){ if (x.reps==="") x.reps=String(p.reps??""); if (x.kg==="") x.kg=String(p.kg??""); } }
+      { const p = lastFor(sessions[s.id].exercices[i].nom, s.id)?.series[j]; if(p){ if (x.reps==="") x.reps=String(p.reps??""); if (x.kg==="" && !isCardio(sessions[s.id].exercices[i].nom)) x.kg=String(p.kg??""); } }
       x.fait = !x.fait; save(s.id,true); render(); if (x.fait && !isCardio(sessions[s.id].exercices[i].nom)) startTimer(REST); break; }
     case "finish": {
       const ss = sessions[s.id];
@@ -643,7 +645,7 @@ document.addEventListener("click", ev => {
 });
 document.addEventListener("input", ev => {
   const el = ev.target, s = current();
-  if (el.dataset.ekcal !== undefined && s){ sessions[s.id].exercices[+el.dataset.ekcal].kcal = el.value.replace(/[^\d]/g,""); save(s.id);
+  if (el.dataset.efield && s){ const f = el.dataset.efield; sessions[s.id].exercices[+el.dataset.i][f] = f==="kcal" ? el.value.replace(/[^\d]/g,"") : el.value.replace(",",".").replace(/[^\d.]/g,""); save(s.id);
     const bs = document.querySelectorAll(".sess-head .meta b"); if (bs[2]) bs[2].textContent = kcal(sessions[s.id])+" kcal"; return; }
   if (el.dataset.note !== undefined && s){ sessions[s.id].exercices[+el.dataset.note].note = el.value; save(s.id); return; }
   if (el.id==="planName" && planEdit && sessions[planEdit]){ sessions[planEdit].nom = el.value; save(planEdit); const t = $("#planTitle"); if (t) t.textContent = sessName(sessions[planEdit]); return; }
@@ -657,7 +659,7 @@ document.addEventListener("input", ev => {
 });
 let justFocused = null;
 document.addEventListener("focusin", ev => {
-  const el = ev.target; if (!el.matches?.(".sets input")) return;
+  const el = ev.target; if (!el.matches?.(".sets input, .ex-kcal input")) return;
   justFocused = el;
   const sel = () => { try { el.setSelectionRange(0, el.value.length); } catch { el.select(); } };
   sel(); setTimeout(sel, 0); setTimeout(sel, 60);
