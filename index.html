@@ -86,6 +86,8 @@ input,select{font:inherit;color:var(--ink);background:var(--surface);border:1px 
 .ex-name{font-family:var(--f-display);font-weight:700;font-size:1.25rem;line-height:1.15;min-width:0}
 .last{font-size:.84rem;color:var(--muted)}
 .sets{display:grid;grid-template-columns:28px 1fr 1fr 40px 44px 32px;gap:6px 8px;align-items:center}
+.sets.cardio{grid-template-columns:28px 1fr 1fr 1fr 44px 32px}
+.records.four{grid-template-columns:1fr 1fr}
 .copy{width:40px;height:40px;background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:1.05rem}
 .copy:disabled{visibility:hidden}
 .sets .h{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
@@ -130,7 +132,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 .timer button{background:var(--bg);color:var(--ink);padding:6px 10px;font-weight:600;font-size:.85rem;border-radius:999px}
 .timer.over b{color:var(--plate-15)}
 .note{font-size:.84rem;color:var(--muted);background:var(--accent-soft);border-radius:8px;padding:8px 12px}
-@media (max-width:420px){.records{grid-template-columns:1fr 1fr}.sets{grid-template-columns:22px 1fr 1fr 38px 42px 26px;gap:6px}.copy{width:38px}}
+@media (max-width:420px){.records{grid-template-columns:1fr 1fr}.sets{grid-template-columns:22px 1fr 1fr 38px 42px 26px;gap:6px}.copy{width:38px}.sets.cardio{grid-template-columns:22px 1fr 1fr 1fr 42px 26px}}
 @media (prefers-reduced-motion:no-preference){.ex,.h-item{transition:border-color .15s}}
 </style>
 
@@ -309,7 +311,8 @@ const current = () => list().find(s => !s.terminee && !s.prevue);
 const plans = () => list().filter(s => s.prevue).sort((a,b)=>b.debut-a.debut);
 const finished = () => list().filter(s => s.terminee).sort((a,b)=>b.debut-a.debut);
 const isCardio = n => byName(n)?.groupe === "Cardio";
-const fmtSet = (n,x) => isCardio(n) ? `${x.reps} min${x.kg!==""&&x.kg!=null?` · ${fmtKg(+x.kg)} km`:""}` : `${x.reps}×${fmtKg(+x.kg||0)}`;
+const fmtSet = (n,x) => isCardio(n) ? `${x.reps} min${x.kg!==""&&x.kg!=null?` · ${fmtKg(+x.kg)} km`:""}${x.kcal?` · ${x.kcal} kcal`:""}` : `${x.reps}×${fmtKg(+x.kg||0)}`;
+const kcal = s => (s.exercices||[]).reduce((t,e)=>t+(isCardio(e.nom)?(e.series||[]).reduce((u,x)=>u+(+x.kcal||0),0):0),0);
 const volume = s => (s.exercices||[]).reduce((t,e)=>t+(isCardio(e.nom)?0:(e.series||[]).reduce((u,x)=>u+(+x.reps||0)*(+x.kg||0),0)),0);
 const nbSeries = s => (s.exercices||[]).reduce((t,e)=>t+(e.series||[]).filter(x=>x.reps).length,0);
 function lastFor(name, excludeId){
@@ -374,6 +377,7 @@ function viewSeance(){
       <div class="meta">
         <div class="stat"><span class="label">Séries</span><b class="num">${nbSeries(s)}</b></div>
         <div class="stat"><span class="label">Volume</span><b class="num">${fmtKg(volume(s))} kg</b></div>
+        ${(s.exercices||[]).some(e=>isCardio(e.nom)) ? `<div class="stat"><span class="label">Calories</span><b class="num">${kcal(s)} kcal</b></div>` : ""}
       </div>
     </div>
     ${exs.map((e,i)=>exCard(s,e,i)).join("")}
@@ -437,13 +441,13 @@ function exCard(s,e,i){
   return `<section class="ex">
     <div class="ex-top"><span class="ex-title">${icon(e.nom)}<span class="ex-name">${esc(key(e.nom))}${subOf(e.nom)?`<span class="en-sub">${esc(subOf(e.nom))}</span>`:""}</span></span><button class="x" title="Retirer l’exercice" aria-label="Retirer ${esc(e.nom)}" data-act="rmex" data-i="${i}">✕</button></div>
     <div class="last">${esc(lastTxt)}</div>
-    <div class="sets">
-      <span class="h">#</span><span class="h">${c?"Minutes":"Reps"}</span><span class="h">${c?"Km":"Kg"}</span><span></span><span class="h">Fait</span><span></span>
+    <div class="sets${c?" cardio":""}">
+      <span class="h">#</span><span class="h">${c?"Minutes":"Reps"}</span><span class="h">${c?"Km":"Kg"}</span><span class="h">${c?"Kcal":""}</span><span class="h">Fait</span><span></span>
       ${(e.series||[]).map((x,j)=>{ const p = last?.series[j];
         return `<span class="idx">${j+1}</span>
         <input id="r-${i}-${j}" inputmode="numeric" value="${esc(x.reps)}" placeholder="${p?esc(p.reps):""}" data-f="reps" data-i="${i}" data-j="${j}" aria-label="${c?"Minutes":"Répétitions"} série ${j+1}">
         <input id="k-${i}-${j}" inputmode="decimal" value="${esc(x.kg)}" placeholder="${p?esc(p.kg):""}" data-f="kg" data-i="${i}" data-j="${j}" aria-label="${c?"Kilomètres":"Kilos"} série ${j+1}">
-        <button class="copy" ${j===0?"disabled":""} data-act="copyset" data-i="${i}" data-j="${j}" title="Recopier la série ${j}" aria-label="Recopier la série ${j} dans la série ${j+1}">↓</button>
+        ${c ? `<input id="c-${i}-${j}" inputmode="numeric" value="${esc(x.kcal??"")}" placeholder="${p&&p.kcal?esc(p.kcal):""}" data-f="kcal" data-i="${i}" data-j="${j}" aria-label="Calories série ${j+1}">` : `<button class="copy" ${j===0?"disabled":""} data-act="copyset" data-i="${i}" data-j="${j}" title="Recopier la série ${j}" aria-label="Recopier la série ${j} dans la série ${j+1}">↓</button>`}
         <button class="done" aria-pressed="${!!x.fait}" data-act="done" data-i="${i}" data-j="${j}" aria-label="Série ${j+1} faite">✓</button>
         <button class="x" data-act="rmset" data-i="${i}" data-j="${j}" aria-label="Supprimer la série ${j+1}">✕</button>`; }).join("")}
     </div>
@@ -463,7 +467,7 @@ function viewHist(){
       return `<div class="h-item">
         <button class="h-sum" data-act="toggle" data-id="${s.id}" aria-expanded="${open}">
           <span><span class="h-date">${esc(sessName(s))}</span><br><span class="muted" style="font-size:.88rem">${esc(fmtDate(s.debut))}${dur?` · ${dur} min`:""}</span></span>
-          <span class="num" style="text-align:right"><b>${fmtKg(volume(s))} kg</b><br><span class="muted" style="font-size:.85rem">${nbSeries(s)} séries</span></span>
+          <span class="num" style="text-align:right"><b>${fmtKg(volume(s))} kg</b><br><span class="muted" style="font-size:.85rem">${nbSeries(s)} séries${kcal(s)?` · ${kcal(s)} kcal`:""}</span></span>
         </button>
         ${open ? `<div class="h-body">
           ${(s.exercices||[]).map(e=>`<div class="h-ex"><span class="h-name">${icon(e.nom,"ico-s")}<span>${esc(key(e.nom))}${subOf(e.nom)?` <span class="en">${esc(subOf(e.nom))}</span>`:""}</span></span><span class="num">${(e.series||[]).filter(x=>x.reps).map(x=>fmtSet(e.nom,x)).join(" · ")||"—"}</span></div>`).join("")}
@@ -502,15 +506,16 @@ function viewProg(){
   if (isCardio(progEx)){
     const pts = f.map(s=>{ const e=(s.exercices||[]).find(e=>key(e.nom)===progEx); if(!e) return null;
       const ser=(e.series||[]).filter(x=>x.reps); if(!ser.length) return null;
-      const min = ser.reduce((t,x)=>t+(+x.reps||0),0), km = ser.reduce((t,x)=>t+(+x.kg||0),0);
-      return {t:s.debut, min, km};
+      const min = ser.reduce((t,x)=>t+(+x.reps||0),0), km = ser.reduce((t,x)=>t+(+x.kg||0),0), cal = ser.reduce((t,x)=>t+(+x.kcal||0),0);
+      return {t:s.debut, min, km, cal};
     }).filter(Boolean);
     const useKm = pts.some(p=>p.km>0);
-    pts.forEach(p=>{ p.e = useKm ? p.km : p.min; p.tip = `${fmtShort(p.t)} : ${p.min} min${p.km?` · ${fmtKg(p.km)} km`:""}`; });
+    pts.forEach(p=>{ p.e = useKm ? p.km : p.min; p.tip = `${fmtShort(p.t)} : ${p.min} min${p.km?` · ${fmtKg(p.km)} km`:""}${p.cal?` · ${p.cal} kcal`:""}`; });
     return `<div class="stack">${progSelect(names)}
-      <div class="records">
+      <div class="records four">
         <div class="rec"><span class="label">Durée max</span><b class="num">${Math.max(0,...pts.map(p=>p.min))} min</b></div>
         <div class="rec"><span class="label">Distance max</span><b class="num">${fmtKg(Math.max(0,...pts.map(p=>p.km)))} km</b></div>
+        <div class="rec"><span class="label">Calories max</span><b class="num">${Math.max(0,...pts.map(p=>p.cal))} kcal</b></div>
         <div class="rec"><span class="label">Séances</span><b class="num">${pts.length}</b></div>
       </div>
       <div class="chart">${chart(pts, useKm ? "Distance (km)" : "Durée (min)")}</div>
@@ -633,7 +638,7 @@ document.addEventListener("input", ev => {
     sessions[s.id].exercices[+el.dataset.i].series[+el.dataset.j][el.dataset.f] = el.value.replace(",",".").replace(/[^\d.]/g,"");
     save(s.id);
     const meta = document.querySelector(".sess-head .meta");
-    if (meta) meta.querySelectorAll("b")[0].textContent = nbSeries(sessions[s.id]), meta.querySelectorAll("b")[1].textContent = fmtKg(volume(sessions[s.id]))+" kg";
+    if (meta) meta.querySelectorAll("b")[0].textContent = nbSeries(sessions[s.id]), meta.querySelectorAll("b")[1].textContent = fmtKg(volume(sessions[s.id]))+" kg"; const bs = meta && meta.querySelectorAll("b"); if (bs && bs[2]) bs[2].textContent = kcal(sessions[s.id])+" kcal";
   }
 });
 let justFocused = null;
