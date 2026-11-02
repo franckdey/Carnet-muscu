@@ -137,6 +137,10 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 .timer{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(64px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);border-radius:999px;padding:8px 8px 8px 18px;display:flex;gap:10px;align-items:center;z-index:6;box-shadow:0 6px 20px rgb(0 0 0 / .25)}
 .timer b{font-family:var(--f-display);font-size:1.4rem;min-width:56px}
 .timer button{background:var(--bg);color:var(--ink);padding:6px 10px;font-weight:600;font-size:.85rem;border-radius:999px}
+.timer.chrono{background:var(--accent);color:var(--accent-ink)}
+.timer .label{white-space:nowrap}
+.chrono-btn{font-size:1rem}
+.chrono-btn.on{background:var(--accent);color:var(--accent-ink)}
 .timer.over b{color:var(--plate-15)}
 .note{font-size:.84rem;color:var(--muted);background:var(--accent-soft);border-radius:8px;padding:8px 12px}
 @media (max-width:420px){.records{grid-template-columns:1fr 1fr}.sets{grid-template-columns:22px 1fr 1fr 38px 42px 26px;gap:6px}.copy{width:38px}.sets.cardio{grid-template-columns:22px 1fr 1fr 1fr 42px 26px}}
@@ -145,10 +149,16 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v1.5</span></h1>
+    <h1>Carnet de muscu <span class="ver">v1.6</span></h1>
     <span class="sync" id="sync">Chargement…</span>
   </header>
   <main id="view"></main>
+</div>
+<div class="timer chrono" id="chrono" hidden>
+  <span class="label" style="color:inherit;opacity:.7" id="chronoLbl">Chrono</span>
+  <b class="num" id="chronoVal">0:00</b>
+  <button type="button" id="chronoStop">Terminer</button>
+  <button type="button" id="chronoCancel" aria-label="Annuler le chrono">✕</button>
 </div>
 <input type="file" id="importFile" accept="application/json,.json,text/plain" hidden>
 <div class="timer" id="timer" hidden>
@@ -318,12 +328,14 @@ const current = () => list().find(s => !s.terminee && !s.prevue);
 const plans = () => list().filter(s => s.prevue).sort((a,b)=>b.debut-a.debut);
 const finished = () => list().filter(s => s.terminee).sort((a,b)=>b.debut-a.debut);
 const isCardio = n => byName(n)?.groupe === "Cardio";
-const fmtSet = (n,x) => isCardio(n) ? `${x.reps} min${x.kg!==""&&x.kg!=null?` · ${fmtKg(+x.kg)} km`:""}${x.kcal?` · ${x.kcal} kcal`:""}` : `${x.reps}×${fmtKg(+x.kg||0)}`;
+const TIMED = new Set(["Plank"]);
+const isTimed = n => TIMED.has(key(n));
+const fmtSet = (n,x) => isTimed(n) ? `${x.reps}×${x.kg||0} s` : isCardio(n) ? `${x.reps} min${x.kg!==""&&x.kg!=null?` · ${fmtKg(+x.kg)} km`:""}${x.kcal?` · ${x.kcal} kcal`:""}` : `${x.reps}×${fmtKg(+x.kg||0)}`;
 const exKm = e => (e.km!==undefined && e.km!=="") ? (+e.km||0) : (e.series||[]).reduce((u,x)=>u+(+x.kg||0),0);
 const cardioTot = e => `${exKm(e)?` · ${fmtKg(exKm(e))} km`:""}${exKcal(e)?` · ${exKcal(e)} kcal`:""}`;
 const exKcal = e => (e.kcal!==undefined && e.kcal!=="") ? (+e.kcal||0) : (e.series||[]).reduce((u,x)=>u+(+x.kcal||0),0);
 const kcal = s => (s.exercices||[]).reduce((t,e)=>t+(isCardio(e.nom)?exKcal(e):0),0);
-const volume = s => (s.exercices||[]).reduce((t,e)=>t+(isCardio(e.nom)?0:(e.series||[]).reduce((u,x)=>u+(+x.reps||0)*(+x.kg||0),0)),0);
+const volume = s => (s.exercices||[]).reduce((t,e)=>t+(isCardio(e.nom)||isTimed(e.nom)?0:(e.series||[]).reduce((u,x)=>u+(+x.reps||0)*(+x.kg||0),0)),0);
 const nbSeries = s => (s.exercices||[]).reduce((t,e)=>t+(e.series||[]).filter(x=>x.reps).length,0);
 function lastFor(name, excludeId){
   const k = key(name), same = e => key(e.nom)===k;
@@ -446,18 +458,18 @@ function viewPlans(){
 }
 
 function exCard(s,e,i){
-  const last = lastFor(e.nom, s.id), c = isCardio(e.nom);
+  const last = lastFor(e.nom, s.id), c = isCardio(e.nom), t = isTimed(e.nom);
   const lastTxt = last ? `Dernière fois (${fmtShort(last.date)}) : ${last.series.map(x=>fmtSet(e.nom,c?{...x,kg:"",kcal:""}:x)).join(" · ")}${last.tot}` : "Première fois sur cet exercice";
   return `<section class="ex">
     <div class="ex-top"><span class="ex-title">${icon(e.nom)}<span class="ex-name">${esc(key(e.nom))}${subOf(e.nom)?`<span class="en-sub">${esc(subOf(e.nom))}</span>`:""}</span></span><button class="x" title="Retirer l’exercice" aria-label="Retirer ${esc(e.nom)}" data-act="rmex" data-i="${i}">✕</button></div>
     <div class="last">${esc(lastTxt)}</div>
     <div class="sets">
-      <span class="h">#</span><span class="h">${c?"Minutes":"Reps"}</span><span class="h">${c?"":"Kg"}</span><span></span><span class="h">Fait</span><span></span>
+      <span class="h">#</span><span class="h">${c?"Minutes":"Reps"}</span><span class="h">${c?"":t?"Sec":"Kg"}</span><span></span><span class="h">Fait</span><span></span>
       ${(e.series||[]).map((x,j)=>{ const p = last?.series[j];
         return `<span class="idx">${j+1}</span>
         <input id="r-${i}-${j}" inputmode="numeric" value="${esc(x.reps)}" placeholder="${p?esc(p.reps):""}" data-f="reps" data-i="${i}" data-j="${j}" aria-label="${c?"Minutes":"Répétitions"} série ${j+1}">
-        ${c ? `<span></span>` : `<input id="k-${i}-${j}" inputmode="decimal" value="${esc(x.kg)}" placeholder="${p?esc(p.kg):""}" data-f="kg" data-i="${i}" data-j="${j}" aria-label="Kilos série ${j+1}">`}
-        <button class="copy" ${j===0?"disabled":""} data-act="copyset" data-i="${i}" data-j="${j}" title="Recopier la série ${j}" aria-label="Recopier la série ${j} dans la série ${j+1}">↓</button>
+        ${c ? `<span></span>` : `<input id="k-${i}-${j}" inputmode="decimal" value="${esc(x.kg)}" placeholder="${p?esc(p.kg):""}" data-f="kg" data-i="${i}" data-j="${j}" aria-label="${t?"Secondes":"Kilos"} série ${j+1}">`}
+        ${(c||t) ? `<button class="copy chrono-btn${chrono&&chrono.i===i&&chrono.j===j?" on":""}" data-act="chrono" data-i="${i}" data-j="${j}" title="Chronométrer la série ${j+1}" aria-label="Chronométrer la série ${j+1}">⏱</button>` : `<button class="copy" ${j===0?"disabled":""} data-act="copyset" data-i="${i}" data-j="${j}" title="Recopier la série ${j}" aria-label="Recopier la série ${j} dans la série ${j+1}">↓</button>`}
         <button class="done" aria-pressed="${!!x.fait}" data-act="done" data-i="${i}" data-j="${j}" aria-label="Série ${j+1} faite">✓</button>
         <button class="x" data-act="rmset" data-i="${i}" data-j="${j}" aria-label="Supprimer la série ${j+1}">✕</button>`; }).join("")}
     </div>
@@ -516,6 +528,21 @@ function viewProg(){
   const names = [...new Set(f.flatMap(s=>(s.exercices||[]).map(e=>key(e.nom))))].sort((a,b)=>a.localeCompare(b,"fr"));
   if (!names.length) return `<div class="empty"><h2>Pas encore de progrès à montrer</h2><p>Après quelques séances, tu verras ici l’évolution de ta meilleure série et tes records pour chaque exercice.</p></div>`;
   if (!names.includes(progEx)) progEx = names[0];
+  if (isTimed(progEx)){
+    const pts = f.map(s=>{ const e=(s.exercices||[]).find(e=>key(e.nom)===progEx); if(!e) return null;
+      const ser=(e.series||[]).filter(x=>x.reps&&x.kg); if(!ser.length) return null;
+      const mx = Math.max(...ser.map(x=>+x.kg||0)), tot = ser.reduce((t,x)=>t+(+x.reps||0)*(+x.kg||0),0);
+      return {t:s.debut, e:mx, tot, tip:`${fmtShort(s.debut)} : ${ser.map(x=>fmtSet(progEx,x)).join(" · ")}`};
+    }).filter(Boolean);
+    return `<div class="stack">${progSelect(names)}
+      <div class="records">
+        <div class="rec"><span class="label">Durée max</span><b class="num">${Math.max(0,...pts.map(p=>p.e))} s</b></div>
+        <div class="rec"><span class="label">Total max</span><b class="num">${Math.max(0,...pts.map(p=>p.tot))} s</b></div>
+        <div class="rec"><span class="label">Séances</span><b class="num">${pts.length}</b></div>
+      </div>
+      <div class="chart">${chart(pts, "Meilleure série (s)")}</div>
+    </div>`;
+  }
   if (isCardio(progEx)){
     const pts = f.map(s=>{ const e=(s.exercices||[]).find(e=>key(e.nom)===progEx); if(!e) return null;
       const ser=(e.series||[]).filter(x=>x.reps); if(!ser.length) return null;
@@ -630,11 +657,12 @@ document.addEventListener("click", ev => {
     case "done": { const x = sessions[s.id].exercices[i].series[j];
       { const p = lastFor(sessions[s.id].exercices[i].nom, s.id)?.series[j]; if(p){ if (x.reps==="") x.reps=String(p.reps??""); if (x.kg==="" && !isCardio(sessions[s.id].exercices[i].nom)) x.kg=String(p.kg??""); } }
       x.fait = !x.fait; save(s.id,true); render(); if (x.fait && !isCardio(sessions[s.id].exercices[i].nom)) startTimer(REST); break; }
-    case "finish": {
+    case "finish": { if (chrono){ clearInterval(chronoTick); chrono = null; $("#chrono").hidden = true; }
       const ss = sessions[s.id];
       ss.exercices = (ss.exercices||[]).map(e=>({...e, series:e.series.filter(x=>x.reps!=="")})).filter(e=>e.series.length);
       if (!ss.exercices.length){ delete sessions[s.id]; save(s.id,true); render(); break; }
       ss.terminee = true; ss.fin = Date.now(); save(s.id,true); stopTimer(); openHist = s.id; location.hash = "#historique"; render(); break; }
+    case "chrono": if (chrono && chrono.i===i && chrono.j===j) endChrono(true); else startChrono(i,j); break;
     case "export": exportData(); break;
     case "import": $("#importFile").click(); break;
     case "askdel": confirmDel = b.dataset.id; render(); break;
@@ -671,6 +699,32 @@ document.addEventListener("submit", ev => { ev.preventDefault(); if (ev.target.d
 window.addEventListener("hashchange", () => { confirmDel=null; render(); window.scrollTo(0,0); });
 
 /* ---------- minuteur de repos ---------- */
+/* ---------- chrono de durée (gainage, cardio) ---------- */
+let chrono = null, chronoTick = null;
+function startChrono(i,j){
+  const s = current(); if (!s) return;
+  stopTimer();
+  chrono = {sid:s.id, i, j, start:Date.now()};
+  $("#chronoLbl").textContent = "Série " + (j+1);
+  $("#chrono").hidden = false; clearInterval(chronoTick); chronoTick = setInterval(drawChrono, 250); drawChrono(); render();
+}
+function drawChrono(){ if (!chrono) return; const sec = Math.floor((Date.now()-chrono.start)/1000); $("#chronoVal").textContent = Math.floor(sec/60) + ":" + String(sec%60).padStart(2,"0"); }
+function endChrono(keep){
+  clearInterval(chronoTick); $("#chrono").hidden = true;
+  const c = chrono; chrono = null; if (!c) return;
+  const ss = sessions[c.sid], e = ss && ss.exercices[c.i], x = e && e.series[c.j];
+  if (keep && x){
+    const sec = Math.max(1, Math.round((Date.now()-c.start)/1000));
+    if (isCardio(e.nom)) x.reps = String(Math.max(1, Math.round(sec/60)));
+    else { x.kg = String(sec); if (!x.reps) x.reps = "1"; }
+    x.fait = true; save(c.sid, true);
+  }
+  render();
+  if (keep && x && !isCardio(e.nom)) startTimer(REST);
+}
+$("#chronoStop").onclick = () => endChrono(true);
+$("#chronoCancel").onclick = () => endChrono(false);
+
 let timerEnd = 0, timerTick = null, buzzed = false;
 function startTimer(sec){ buzzed = false; timerEnd = Date.now()+sec*1000; $("#timer").hidden=false; clearInterval(timerTick); timerTick=setInterval(drawTimer,250); drawTimer(); }
 function stopTimer(){ clearInterval(timerTick); $("#timer").hidden=true; }
