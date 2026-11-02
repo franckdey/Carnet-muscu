@@ -37,6 +37,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:1
 .wrap{max-width:640px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:18px 120px}
 header.top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}
 h1{font-family:var(--f-display);font-weight:800;font-size:2rem;letter-spacing:.01em;margin:0;text-transform:uppercase;line-height:1}
+.ver{font-family:var(--f-body);font-size:.8rem;font-weight:600;letter-spacing:.04em;text-transform:none;color:var(--muted);vertical-align:middle;margin-left:4px}
 h2{font-family:var(--f-display);font-weight:700;font-size:1.45rem;margin:0;text-wrap:balance}
 .sync{font-size:.8rem;color:var(--muted)}
 .label{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
@@ -138,7 +139,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu</h1>
+    <h1>Carnet de muscu <span class="ver">v1.2</span></h1>
     <span class="sync" id="sync">Chargement…</span>
   </header>
   <main id="view"></main>
