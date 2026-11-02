@@ -49,7 +49,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .btn.danger{background:var(--danger-soft);color:var(--danger)}
 .btn.small{padding:7px 11px;font-size:.88rem}
 .btn.block{width:100%}
-input,select{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;width:100%;min-width:0}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;width:100%;min-width:0}
 .stack{display:flex;flex-direction:column;gap:14px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .muted{color:var(--muted)}
@@ -100,6 +100,8 @@ input,select{font:inherit;color:var(--ink);background:var(--surface);border:1px 
 .x{background:none;color:var(--muted);height:32px;width:32px;font-size:1.1rem}
 .x:hover{color:var(--danger)}
 .add-ex{display:flex;gap:8px}
+.ex-note{resize:vertical;font-size:.92rem;line-height:1.4}
+.h-note{margin:-2px 0 0 30px;font-size:.86rem;color:var(--muted);font-style:italic;white-space:pre-wrap}
 .plan-list{display:flex;flex-direction:column;gap:6px}
 .plan-ex{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px}
 .plan-ex .mach-txt{flex:1}
@@ -139,7 +141,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v1.2</span></h1>
+    <h1>Carnet de muscu <span class="ver">v1.3</span></h1>
     <span class="sync" id="sync">Chargement…</span>
   </header>
   <main id="view"></main>
@@ -242,7 +244,7 @@ async function initStore(){
       sessions = JSON.parse(JSON.stringify(next));
       const first = mode !== "db"; mode = "db";
       if (first || !snap.metadata.hasPendingWrites) setSync(snap.metadata.fromCache ? "Synchronisation…" : "Synchronisé");
-      if (!document.activeElement || document.activeElement.tagName !== "INPUT" || first) render();
+      if (!document.activeElement || !["INPUT","TEXTAREA"].includes(document.activeElement.tagName) || first) render();
     }, () => { clearTimeout(giveUp); fallback(); });
   }catch{ clearTimeout(giveUp); fallback(); }
 }
@@ -453,6 +455,7 @@ function exCard(s,e,i){
         <button class="x" data-act="rmset" data-i="${i}" data-j="${j}" aria-label="Supprimer la série ${j+1}">✕</button>`; }).join("")}
     </div>
     <button class="btn ghost small" data-act="addset" data-i="${i}">+ Série</button>
+    ${c ? `<textarea id="note-${i}" class="ex-note" data-note="${i}" rows="2" placeholder="Commentaire (programme, niveau, ressenti…)" aria-label="Commentaire pour ${esc(key(e.nom))}">${esc(e.note||"")}</textarea>` : ""}
   </section>`;
 }
 
@@ -471,7 +474,7 @@ function viewHist(){
           <span class="num" style="text-align:right"><b>${fmtKg(volume(s))} kg</b><br><span class="muted" style="font-size:.85rem">${nbSeries(s)} séries${kcal(s)?` · ${kcal(s)} kcal`:""}</span></span>
         </button>
         ${open ? `<div class="h-body">
-          ${(s.exercices||[]).map(e=>`<div class="h-ex"><span class="h-name">${icon(e.nom,"ico-s")}<span>${esc(key(e.nom))}${subOf(e.nom)?` <span class="en">${esc(subOf(e.nom))}</span>`:""}</span></span><span class="num">${(e.series||[]).filter(x=>x.reps).map(x=>fmtSet(e.nom,x)).join(" · ")||"—"}</span></div>`).join("")}
+          ${(s.exercices||[]).map(e=>`<div class="h-ex"><span class="h-name">${icon(e.nom,"ico-s")}<span>${esc(key(e.nom))}${subOf(e.nom)?` <span class="en">${esc(subOf(e.nom))}</span>`:""}</span></span><span class="num">${(e.series||[]).filter(x=>x.reps).map(x=>fmtSet(e.nom,x)).join(" · ")||"—"}</span></div>${e.note?`<p class="h-note">${esc(e.note)}</p>`:""}`).join("")}
           <div class="row" style="justify-content:flex-end;margin-top:6px">
             ${current() ? `<span class="muted" style="font-size:.85rem;margin-right:auto">Termine la séance en cours pour reprendre celle-ci.</span>` : `<button class="btn small" data-act="repeat" data-id="${s.id}">Refaire cette séance</button><button class="btn ghost small" style="margin-right:auto" data-act="resume" data-id="${s.id}">Reprendre</button>`}
             ${confirmDel===s.id ? `<button class="btn danger small" data-act="del" data-id="${s.id}">Confirmer la suppression</button>` : `<button class="btn ghost small" data-act="askdel" data-id="${s.id}">Supprimer</button>`}
@@ -633,6 +636,7 @@ document.addEventListener("click", ev => {
 });
 document.addEventListener("input", ev => {
   const el = ev.target, s = current();
+  if (el.dataset.note !== undefined && s){ sessions[s.id].exercices[+el.dataset.note].note = el.value; save(s.id); return; }
   if (el.id==="planName" && planEdit && sessions[planEdit]){ sessions[planEdit].nom = el.value; save(planEdit); const t = $("#planTitle"); if (t) t.textContent = sessName(sessions[planEdit]); return; }
   if (el.id==="newEx"){ $("#sugg").innerHTML = suggestions(el.value); return; }
   if (el.dataset.f && s){
