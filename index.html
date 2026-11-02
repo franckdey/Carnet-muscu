@@ -149,7 +149,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v1.6</span></h1>
+    <h1>Carnet de muscu <span class="ver">v1.7</span></h1>
     <span class="sync" id="sync">Chargement…</span>
   </header>
   <main id="view"></main>
@@ -332,7 +332,10 @@ const TIMED = new Set(["Plank"]);
 const isTimed = n => TIMED.has(key(n));
 const fmtSet = (n,x) => isTimed(n) ? `${x.reps}×${x.kg||0} s` : isCardio(n) ? `${x.reps} min${x.kg!==""&&x.kg!=null?` · ${fmtKg(+x.kg)} km`:""}${x.kcal?` · ${x.kcal} kcal`:""}` : `${x.reps}×${fmtKg(+x.kg||0)}`;
 const exKm = e => (e.km!==undefined && e.km!=="") ? (+e.km||0) : (e.series||[]).reduce((u,x)=>u+(+x.kg||0),0);
-const cardioTot = e => `${exKm(e)?` · ${fmtKg(exKm(e))} km`:""}${exKcal(e)?` · ${exKcal(e)} kcal`:""}`;
+const METRES = new Set(["Rower"]);
+const inM = n => METRES.has(key(n));
+const fmtDist = (n, km) => inM(n) ? `${Math.round(km*1000).toLocaleString("fr-FR")} m` : `${fmtKg(km)} km`;
+const cardioTot = e => `${exKm(e)?` · ${fmtDist(e.nom, exKm(e))}`:""}${exKcal(e)?` · ${exKcal(e)} kcal`:""}`;
 const exKcal = e => (e.kcal!==undefined && e.kcal!=="") ? (+e.kcal||0) : (e.series||[]).reduce((u,x)=>u+(+x.kcal||0),0);
 const kcal = s => (s.exercices||[]).reduce((t,e)=>t+(isCardio(e.nom)?exKcal(e):0),0);
 const volume = s => (s.exercices||[]).reduce((t,e)=>t+(isCardio(e.nom)||isTimed(e.nom)?0:(e.series||[]).reduce((u,x)=>u+(+x.reps||0)*(+x.kg||0),0)),0);
@@ -474,7 +477,8 @@ function exCard(s,e,i){
         <button class="x" data-act="rmset" data-i="${i}" data-j="${j}" aria-label="Supprimer la série ${j+1}">✕</button>`; }).join("")}
     </div>
     <button class="btn ghost small" data-act="addset" data-i="${i}">+ Série</button>
-    ${c ? `<div class="ex-kcal"><label for="km-${i}">Distance de l’activité</label><input id="km-${i}" inputmode="decimal" data-efield="km" data-i="${i}" value="${esc(e.km!==undefined&&e.km!==""?e.km:(exKm(e)||""))}" placeholder="${last&&last.km?esc(last.km):"km"}"><span>km</span></div>
+    ${c ? `<div class="ex-kcal"><label for="km-${i}">Distance de l’activité</label>${(()=>{ const m = inM(e.nom), v = e.km!==undefined&&e.km!==""?+e.km:exKm(e), conv = k => m ? Math.round(k*1000) : k;
+      return `<input id="km-${i}" inputmode="${m?"numeric":"decimal"}" data-efield="km" data-unit="${m?"m":"km"}" data-i="${i}" value="${v?esc(conv(v)):""}" placeholder="${last&&last.km?esc(conv(last.km)):(m?"m":"km")}"><span>${m?"m":"km"}</span>`; })()}</div>
     <div class="ex-kcal"><label for="kcal-${i}">Calories de l’activité</label><input id="kcal-${i}" inputmode="numeric" data-efield="kcal" data-i="${i}" value="${esc(e.kcal!==undefined&&e.kcal!==""?e.kcal:(exKcal(e)||""))}" placeholder="${last&&last.kcal?esc(last.kcal):"kcal"}"><span>kcal</span></div>` : ""}
     ${c ? `<textarea id="note-${i}" class="ex-note" data-note="${i}" rows="2" placeholder="Commentaire (programme, niveau, ressenti…)" aria-label="Commentaire pour ${esc(key(e.nom))}">${esc(e.note||"")}</textarea>` : ""}
   </section>`;
@@ -550,15 +554,15 @@ function viewProg(){
       return {t:s.debut, min, km, cal};
     }).filter(Boolean);
     const useKm = pts.some(p=>p.km>0);
-    pts.forEach(p=>{ p.e = useKm ? p.km : p.min; p.tip = `${fmtShort(p.t)} : ${p.min} min${p.km?` · ${fmtKg(p.km)} km`:""}${p.cal?` · ${p.cal} kcal`:""}`; });
+    pts.forEach(p=>{ p.e = useKm ? (inM(progEx) ? Math.round(p.km*1000) : p.km) : p.min; p.tip = `${fmtShort(p.t)} : ${p.min} min${p.km?` · ${fmtDist(progEx, p.km)}`:""}${p.cal?` · ${p.cal} kcal`:""}`; });
     return `<div class="stack">${progSelect(names)}
       <div class="records four">
         <div class="rec"><span class="label">Durée max</span><b class="num">${Math.max(0,...pts.map(p=>p.min))} min</b></div>
-        <div class="rec"><span class="label">Distance max</span><b class="num">${fmtKg(Math.max(0,...pts.map(p=>p.km)))} km</b></div>
+        <div class="rec"><span class="label">Distance max</span><b class="num">${fmtDist(progEx, Math.max(0,...pts.map(p=>p.km)))}</b></div>
         <div class="rec"><span class="label">Calories max</span><b class="num">${Math.max(0,...pts.map(p=>p.cal))} kcal</b></div>
         <div class="rec"><span class="label">Séances</span><b class="num">${pts.length}</b></div>
       </div>
-      <div class="chart">${chart(pts, useKm ? "Distance (km)" : "Durée (min)")}</div>
+      <div class="chart">${chart(pts, useKm ? (inM(progEx) ? "Distance (m)" : "Distance (km)") : "Durée (min)")}</div>
     </div>`;
   }
   const pts = f.map(s=>{ const e=(s.exercices||[]).find(e=>key(e.nom)===progEx); if(!e) return null;
@@ -673,7 +677,7 @@ document.addEventListener("click", ev => {
 });
 document.addEventListener("input", ev => {
   const el = ev.target, s = current();
-  if (el.dataset.efield && s){ const f = el.dataset.efield; sessions[s.id].exercices[+el.dataset.i][f] = f==="kcal" ? el.value.replace(/[^\d]/g,"") : el.value.replace(",",".").replace(/[^\d.]/g,""); save(s.id);
+  if (el.dataset.efield && s){ const f = el.dataset.efield; sessions[s.id].exercices[+el.dataset.i][f] = f==="kcal" ? el.value.replace(/[^\d]/g,"") : el.dataset.unit==="m" ? (el.value.replace(/[^\d]/g,"") ? String(+el.value.replace(/[^\d]/g,"")/1000) : "") : el.value.replace(",",".").replace(/[^\d.]/g,""); save(s.id);
     const bs = document.querySelectorAll(".sess-head .meta b"); if (bs[2]) bs[2].textContent = kcal(sessions[s.id])+" kcal"; return; }
   if (el.dataset.note !== undefined && s){ sessions[s.id].exercices[+el.dataset.note].note = el.value; save(s.id); return; }
   if (el.id==="planName" && planEdit && sessions[planEdit]){ sessions[planEdit].nom = el.value; save(planEdit); const t = $("#planTitle"); if (t) t.textContent = sessName(sessions[planEdit]); return; }
