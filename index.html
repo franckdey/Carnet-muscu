@@ -149,7 +149,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v1.7</span></h1>
+    <h1>Carnet de muscu <span class="ver">v1.8</span></h1>
     <span class="sync" id="sync">Chargement…</span>
   </header>
   <main id="view"></main>
@@ -325,7 +325,7 @@ function icon(n, cls="ico"){
 /* ---------- calculs ---------- */
 const list = () => Object.entries(sessions).map(([id,s])=>({id,...s}));
 const current = () => list().find(s => !s.terminee && !s.prevue);
-const plans = () => list().filter(s => s.prevue).sort((a,b)=>b.debut-a.debut);
+const plans = () => list().filter(s => s.prevue).sort((a,b)=>((a.ordre??Infinity)-(b.ordre??Infinity)) || (b.debut-a.debut));
 const finished = () => list().filter(s => s.terminee).sort((a,b)=>b.debut-a.debut);
 const isCardio = n => byName(n)?.groupe === "Cardio";
 const TIMED = new Set(["Plank"]);
@@ -449,8 +449,10 @@ function viewPlans(){
   return `<div class="stack">
     <div class="sess-head"><h2>Séances prévues</h2><button class="btn" data-act="planNew">+ Préparer une séance</button></div>
     ${ps.length ? "" : `<div class="empty"><p>Prépare tes séances à l’avance avec juste la liste des machines. À la salle, tu la démarres en un geste et il ne reste qu’à remplir reps et poids.</p></div>`}
-    <div class="hist">${ps.map(p=>{ const exs = p.exercices||[]; return `<div class="h-item"><div class="h-body" style="padding-top:14px">
-      <div class="h-sum" style="padding:0"><span><span class="h-date">${esc(sessName(p))}</span><br><span class="muted" style="font-size:.88rem">${exs.length} machine${exs.length>1?"s":""}</span></span></div>
+    <div class="hist">${ps.map((p,idx)=>{ const exs = p.exercices||[]; return `<div class="h-item"><div class="h-body" style="padding-top:14px">
+      <div class="h-sum" style="padding:0"><span><span class="h-date">${esc(sessName(p))}</span><br><span class="muted" style="font-size:.88rem">${exs.length} machine${exs.length>1?"s":""}</span></span><span class="row" style="gap:2px;flex-wrap:nowrap">
+        <button class="x" data-act="planMove" data-dir="-1" data-id="${p.id}" aria-label="Monter ${esc(sessName(p))}" ${idx===0?"disabled":""}>▲</button>
+        <button class="x" data-act="planMove" data-dir="1" data-id="${p.id}" aria-label="Descendre ${esc(sessName(p))}" ${idx===ps.length-1?"disabled":""}>▼</button></span></div>
       ${exs.map(e=>`<div class="h-ex"><span class="h-name">${icon(e.nom,"ico-s")}<span>${esc(key(e.nom))}${subOf(e.nom)?` <span class="en">${esc(subOf(e.nom))}</span>`:""}</span></span></div>`).join("")}
       <div class="row" style="justify-content:flex-end;margin-top:6px">
         ${current() ? `<span class="muted" style="font-size:.85rem;margin-right:auto">Une séance est déjà en cours.</span>` : `<button class="btn small" style="margin-right:auto" data-act="planStart" data-id="${p.id}" ${exs.length?"":"disabled"}>Démarrer</button>`}
@@ -643,7 +645,10 @@ document.addEventListener("click", ev => {
     case "start": startSession(); break;
     case "repeat": { if (current()) break; const p = b.dataset.id ? sessions[b.dataset.id] : finished()[0]; if (!p) break; startSession(p.nom, p.exercices); openHist = null; location.hash = "#seance"; break; }
     case "addex": addAny(b.dataset.nom); break;
-    case "planNew": { const id = newId(); sessions[id] = {prevue:true, nom:"", debut:Date.now(), terminee:false, exercices:[]}; planEdit = id; libOpen = null; save(id,true); render(); window.scrollTo(0,0); break; }
+    case "planNew": { const id = newId(); sessions[id] = {prevue:true, nom:"", debut:Date.now(), terminee:false, exercices:[], ordre: Math.min(0, ...plans().map(p=>p.ordre??0)) - 1}; planEdit = id; libOpen = null; save(id,true); render(); window.scrollTo(0,0); break; }
+    case "planMove": { const ps = plans(), k = ps.findIndex(p=>p.id===b.dataset.id), t = k + +b.dataset.dir;
+      if (k<0 || t<0 || t>=ps.length) break; [ps[k],ps[t]] = [ps[t],ps[k]];
+      ps.forEach((p,n)=>{ if (sessions[p.id].ordre !== n){ sessions[p.id].ordre = n; save(p.id,true); } }); render(); break; }
     case "planOpen": planEdit = b.dataset.id; libOpen = null; render(); window.scrollTo(0,0); break;
     case "planDone": { const p = sessions[planEdit]; if (p && !(p.exercices||[]).length && !p.nom){ delete sessions[planEdit]; save(planEdit,true); } planEdit = null; render(); window.scrollTo(0,0); break; }
     case "planStart": startFromPlan(b.dataset.id); break;
