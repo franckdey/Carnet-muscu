@@ -97,6 +97,10 @@ input,select{font:inherit;color:var(--ink);background:var(--surface);border:1px 
 .x{background:none;color:var(--muted);height:32px;width:32px;font-size:1.1rem}
 .x:hover{color:var(--danger)}
 .add-ex{display:flex;gap:8px}
+.plan-list{display:flex;flex-direction:column;gap:6px}
+.plan-ex{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px}
+.plan-ex .mach-txt{flex:1}
+.x:disabled{opacity:.25;cursor:default}
 .lib summary{cursor:pointer;color:var(--accent);font-weight:600}
 .add-ex input{flex:1}
 
@@ -119,7 +123,7 @@ input,select{font:inherit;color:var(--ink);background:var(--surface);border:1px 
 
 /* onglets et minuteur */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);z-index:5}
-nav.tabs a{flex:1;max-width:213px;text-align:center;padding:12px 6px 14px;color:var(--muted);text-decoration:none;font-weight:600;font-size:.92rem;border-top:3px solid transparent}
+nav.tabs a{flex:1;max-width:160px;text-align:center;padding:12px 4px 14px;color:var(--muted);text-decoration:none;font-weight:600;font-size:.92rem;border-top:3px solid transparent}
 nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accent)}
 .timer{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(64px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);border-radius:999px;padding:8px 8px 8px 18px;display:flex;gap:10px;align-items:center;z-index:6;box-shadow:0 6px 20px rgb(0 0 0 / .25)}
 .timer b{font-family:var(--f-display);font-size:1.4rem;min-width:56px}
@@ -146,6 +150,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 </div>
 <nav class="tabs">
   <a href="#seance" data-tab="seance">Séance</a>
+  <a href="#prevues" data-tab="prevues">Prévues</a>
   <a href="#historique" data-tab="historique">Historique</a>
   <a href="#progres" data-tab="progres">Progrès</a>
 </nav>
@@ -300,7 +305,8 @@ function icon(n, cls="ico"){
 
 /* ---------- calculs ---------- */
 const list = () => Object.entries(sessions).map(([id,s])=>({id,...s}));
-const current = () => list().find(s => !s.terminee);
+const current = () => list().find(s => !s.terminee && !s.prevue);
+const plans = () => list().filter(s => s.prevue).sort((a,b)=>b.debut-a.debut);
 const finished = () => list().filter(s => s.terminee).sort((a,b)=>b.debut-a.debut);
 const isCardio = n => byName(n)?.groupe === "Cardio";
 const fmtSet = (n,x) => isCardio(n) ? `${x.reps} min${x.kg!==""&&x.kg!=null?` · ${fmtKg(+x.kg)} km`:""}` : `${x.reps}×${fmtKg(+x.kg||0)}`;
@@ -335,15 +341,15 @@ const e1rm = (kg,reps) => reps>0 ? kg*(1+reps/30) : 0;
 const plateColor = kg => kg>=100?"var(--plate-25)":kg>=60?"var(--plate-20)":kg>=30?"var(--plate-15)":"var(--plate-10)";
 
 /* ---------- vues ---------- */
-const tab = () => (["seance","historique","progres"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "seance");
-let openHist = null, confirmDel = null, progEx = null;
+const tab = () => (["seance","prevues","historique","progres"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "seance");
+let openHist = null, confirmDel = null, progEx = null, planEdit = null;
 
 function render(){
   document.querySelectorAll("nav.tabs a").forEach(a => { if (a.dataset.tab===tab()) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
   const v = $("#view");
   if (mode === "loading"){ v.innerHTML = `<p class="muted">Chargement de tes séances…</p>`; return; }
   const t = tab();
-  v.innerHTML = t==="seance" ? viewSeance() : t==="historique" ? viewHist() : viewProg();
+  v.innerHTML = t==="seance" ? viewSeance() : t==="prevues" ? viewPlans() : t==="historique" ? viewHist() : viewProg();
 }
 
 function viewSeance(){
@@ -357,7 +363,9 @@ function viewSeance(){
         <p>Lance ta séance puis ajoute tes exercices au fur et à mesure. Pour chacun, l’appli te rappelle ce que tu as fait la dernière fois, pour viser une rep ou un kilo de plus.</p>
         <button class="btn" data-act="start">Commencer une séance</button>
         ${prev ? `<button class="btn ghost" data-act="repeat">Refaire ta dernière séance (${esc(sessName(prev))}, ${fmtShort(prev.debut)})</button>` : ""}
-      </div></div>`;
+      </div>
+      ${plans().filter(p=>(p.exercices||[]).length).length ? `<div class="stack" style="gap:8px"><span class="label">Démarrer une séance prévue</span>${plans().filter(p=>(p.exercices||[]).length).map(p=>`<button class="btn ghost" style="text-align:left" data-act="planStart" data-id="${p.id}">${esc(sessName(p))} <span class="muted" style="font-weight:500">· ${p.exercices.length} machine${p.exercices.length>1?"s":""}</span></button>`).join("")}</div>` : ""}
+    </div>`;
   }
   const exs = s.exercices||[];
   return `<div class="stack">${note}
@@ -369,19 +377,57 @@ function viewSeance(){
       </div>
     </div>
     ${exs.map((e,i)=>exCard(s,e,i)).join("")}
-    <span class="label">${exs.length ? `Ajouter une autre machine (${exs.length} dans cette séance)` : "Ajouter une machine"}</span>
-    <form class="add-ex" data-form="addex">
-      <input id="newEx" placeholder="Chercher une machine (ex. Leg Press, presse)" autocomplete="off" aria-label="Nom de l’exercice, en français ou en anglais">
-      <button class="btn" type="submit">Ajouter</button>
-    </form>
-    <div id="sugg"></div>
-    <details class="lib" ${exs.length===0?"open":""}><summary>Toutes les machines par groupe</summary><div class="stack" style="margin-top:12px">${GROUPES.map(g=>`<div class="stack" style="gap:6px"><span class="label">${esc(g)}</span><div class="mgrid">${LIB.filter(e=>e.groupe===g).map(chipEx).join("")}</div></div>`).join("")}</div></details>
+    ${addBlock(exs.length, "dans cette séance")}
     <div class="row">
       <button class="btn block" data-act="finish">Terminer la séance</button>
       ${confirmDel===s.id
         ? `<button class="btn danger block" data-act="del" data-id="${s.id}">Confirmer l’abandon</button>`
         : `<button class="btn ghost block" data-act="askdel" data-id="${s.id}">Abandonner</button>`}
     </div></div>`;
+}
+
+let libOpen = null;
+document.addEventListener("toggle", e => { if (e.target.classList && e.target.classList.contains("lib")) libOpen = e.target.open; }, true);
+function addBlock(n, where, defOpen = n===0){
+  return `<span class="label">${n ? `Ajouter une autre machine (${n} ${where})` : "Ajouter une machine"}</span>
+    <form class="add-ex" data-form="addex">
+      <input id="newEx" placeholder="Chercher une machine (ex. Leg Press, presse)" autocomplete="off" aria-label="Nom de l’exercice, en français ou en anglais">
+      <button class="btn" type="submit">Ajouter</button>
+    </form>
+    <div id="sugg"></div>
+    <details class="lib" ${(libOpen!==null ? libOpen : defOpen)?"open":""}><summary>Toutes les machines par groupe</summary><div class="stack" style="margin-top:12px">${GROUPES.map(g=>`<div class="stack" style="gap:6px"><span class="label">${esc(g)}</span><div class="mgrid">${LIB.filter(e=>e.groupe===g).map(chipEx).join("")}</div></div>`).join("")}</div></details>`;
+}
+
+function viewPlans(){
+  const ed = planEdit && sessions[planEdit] ? {id:planEdit, ...sessions[planEdit]} : null;
+  if (ed){
+    const exs = ed.exercices||[];
+    return `<div class="stack">
+      <div class="sess-head"><div><span class="label">Séance prévue</span><h2 id="planTitle">${esc(sessName(ed))}</h2></div></div>
+      <div class="stack" style="gap:6px"><label class="label" for="planName">Nom (facultatif)</label>
+        <input id="planName" value="${esc(ed.nom)}" placeholder="ex. Haut du corps, Jambes du lundi" autocomplete="off"></div>
+      ${exs.length ? `<div class="plan-list">${exs.map((e,i)=>`<div class="plan-ex">
+        ${icon(e.nom,"ico-m")}<span class="mach-txt"><span class="mach-en">${esc(key(e.nom))}</span>${subOf(e.nom)?`<span class="mach-fr">${esc(subOf(e.nom))}</span>`:""}</span>
+        <button class="x" data-act="planUp" data-i="${i}" aria-label="Monter ${esc(key(e.nom))}" ${i===0?"disabled":""}>▲</button>
+        <button class="x" data-act="planDown" data-i="${i}" aria-label="Descendre ${esc(key(e.nom))}" ${i===exs.length-1?"disabled":""}>▼</button>
+        <button class="x" data-act="planRm" data-i="${i}" aria-label="Retirer ${esc(key(e.nom))}">✕</button></div>`).join("")}</div>` : `<p class="muted" style="margin:0">Ajoute les machines de cette séance, dans l’ordre où tu veux les faire. Pas besoin de poids ni de reps.</p>`}
+      ${addBlock(exs.length, "prévue" + (exs.length>1?"s":""), true)}
+      <button class="btn block" data-act="planDone">Enregistrer la séance prévue</button>
+    </div>`;
+  }
+  const ps = plans();
+  return `<div class="stack">
+    <div class="sess-head"><h2>Séances prévues</h2><button class="btn" data-act="planNew">+ Préparer une séance</button></div>
+    ${ps.length ? "" : `<div class="empty"><p>Prépare tes séances à l’avance avec juste la liste des machines. À la salle, tu la démarres en un geste et il ne reste qu’à remplir reps et poids.</p></div>`}
+    <div class="hist">${ps.map(p=>{ const exs = p.exercices||[]; return `<div class="h-item"><div class="h-body" style="padding-top:14px">
+      <div class="h-sum" style="padding:0"><span><span class="h-date">${esc(sessName(p))}</span><br><span class="muted" style="font-size:.88rem">${exs.length} machine${exs.length>1?"s":""}</span></span></div>
+      ${exs.map(e=>`<div class="h-ex"><span class="h-name">${icon(e.nom,"ico-s")}<span>${esc(key(e.nom))}${subOf(e.nom)?` <span class="en">${esc(subOf(e.nom))}</span>`:""}</span></span></div>`).join("")}
+      <div class="row" style="justify-content:flex-end;margin-top:6px">
+        ${current() ? `<span class="muted" style="font-size:.85rem;margin-right:auto">Une séance est déjà en cours.</span>` : `<button class="btn small" style="margin-right:auto" data-act="planStart" data-id="${p.id}" ${exs.length?"":"disabled"}>Démarrer</button>`}
+        <button class="btn ghost small" data-act="planOpen" data-id="${p.id}">Modifier</button>
+        ${confirmDel===p.id ? `<button class="btn danger small" data-act="del" data-id="${p.id}">Confirmer la suppression</button>` : `<button class="btn ghost small" data-act="askdel" data-id="${p.id}">Supprimer</button>`}
+      </div></div></div>`; }).join("")}</div>
+  </div>`;
 }
 
 function exCard(s,e,i){
@@ -511,11 +557,26 @@ function chart(pts, label){
 
 /* ---------- actions ---------- */
 function startSession(nom = "", template){
+  libOpen = null;
   const id = newId();
   sessions[id] = { nom, debut: Date.now(), terminee:false,
     exercices: (template||[]).map(e=>({nom:e.nom, series:(e.series||[]).filter(x=>x.reps).map(x=>({reps:String(x.reps??""),kg:String(x.kg??""),fait:false}))})) };
   save(id, true); render();
 }
+function startFromPlan(id){
+  const p = sessions[id]; if (!p || current()) return;
+  const nid = newId();
+  sessions[nid] = { nom: p.nom||"", debut: Date.now(), terminee:false, exercices: (p.exercices||[]).map(e=>{
+    const last = lastFor(e.nom, nid), n = last ? Math.max(1,last.series.length) : (isCardio(e.nom) ? 1 : 3);
+    return {nom:e.nom, series:Array.from({length:n},()=>({reps:"",kg:"",fait:false}))}; }) };
+  save(nid, true); location.hash = "#seance"; render();
+}
+function addPlanEx(nom){
+  const p = sessions[planEdit]; nom = (nom||"").trim(); if (!p || !nom) return;
+  p.exercices = [...(p.exercices||[]), {nom:key(nom)}];
+  save(planEdit, true); render();
+}
+const addAny = nom => (tab()==="prevues" && planEdit && sessions[planEdit]) ? addPlanEx(nom) : addExercise(nom);
 function addExercise(nom){
   const s = current(); nom = (nom||"").trim(); if(!s||!nom) return;
   nom = key(nom);
@@ -532,7 +593,13 @@ document.addEventListener("click", ev => {
   switch(act){
     case "start": startSession(); break;
     case "repeat": { if (current()) break; const p = b.dataset.id ? sessions[b.dataset.id] : finished()[0]; if (!p) break; startSession(p.nom, p.exercices); openHist = null; location.hash = "#seance"; break; }
-    case "addex": addExercise(b.dataset.nom); break;
+    case "addex": addAny(b.dataset.nom); break;
+    case "planNew": { const id = newId(); sessions[id] = {prevue:true, nom:"", debut:Date.now(), terminee:false, exercices:[]}; planEdit = id; libOpen = null; save(id,true); render(); window.scrollTo(0,0); break; }
+    case "planOpen": planEdit = b.dataset.id; libOpen = null; render(); window.scrollTo(0,0); break;
+    case "planDone": { const p = sessions[planEdit]; if (p && !(p.exercices||[]).length && !p.nom){ delete sessions[planEdit]; save(planEdit,true); } planEdit = null; render(); window.scrollTo(0,0); break; }
+    case "planStart": startFromPlan(b.dataset.id); break;
+    case "planRm": sessions[planEdit].exercices.splice(i,1); save(planEdit,true); render(); break;
+    case "planUp": case "planDown": { const a = sessions[planEdit].exercices, k = act==="planUp" ? i-1 : i+1; if (k<0||k>=a.length) break; [a[i],a[k]] = [a[k],a[i]]; save(planEdit,true); render(); break; }
     case "rmex": sessions[s.id].exercices.splice(i,1); save(s.id,true); render(); break;
     case "addset": { const ser = sessions[s.id].exercices[i].series; const l = ser[ser.length-1]||{};
       ser.push({reps:l.reps||"",kg:l.kg||"",fait:false}); save(s.id,true); render(); break; }
@@ -560,6 +627,7 @@ document.addEventListener("click", ev => {
 });
 document.addEventListener("input", ev => {
   const el = ev.target, s = current();
+  if (el.id==="planName" && planEdit && sessions[planEdit]){ sessions[planEdit].nom = el.value; save(planEdit); const t = $("#planTitle"); if (t) t.textContent = sessName(sessions[planEdit]); return; }
   if (el.id==="newEx"){ $("#sugg").innerHTML = suggestions(el.value); return; }
   if (el.dataset.f && s){
     sessions[s.id].exercices[+el.dataset.i].series[+el.dataset.j][el.dataset.f] = el.value.replace(",",".").replace(/[^\d.]/g,"");
@@ -578,7 +646,7 @@ document.addEventListener("focusin", ev => {
 document.addEventListener("mouseup", ev => { if (ev.target === justFocused) { ev.preventDefault(); justFocused = null; } });
 document.addEventListener("change", ev => {
   if (ev.target.id==="importFile"){ const f = ev.target.files[0]; if (f) f.text().then(importData); ev.target.value=""; return; } if (ev.target.id==="progSel"){ progEx = ev.target.value; render(); } });
-document.addEventListener("submit", ev => { ev.preventDefault(); if (ev.target.dataset.form==="addex") addExercise($("#newEx").value); });
+document.addEventListener("submit", ev => { ev.preventDefault(); if (ev.target.dataset.form==="addex") addAny($("#newEx").value); });
 window.addEventListener("hashchange", () => { confirmDel=null; render(); window.scrollTo(0,0); });
 
 /* ---------- minuteur de repos ---------- */
