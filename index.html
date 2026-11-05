@@ -151,7 +151,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v1.9</span></h1>
+    <h1>Carnet de muscu <span class="ver">v2.0</span></h1>
     <span class="sync" id="sync">Chargement…</span>
   </header>
   <main id="view"></main>
@@ -673,7 +673,7 @@ document.addEventListener("click", ev => {
     case "done": { const x = sessions[s.id].exercices[i].series[j];
       { const p = lastFor(sessions[s.id].exercices[i].nom, s.id)?.series[j]; if(p){ if (x.reps==="") x.reps=String(p.reps??""); if (x.kg==="" && !isCardio(sessions[s.id].exercices[i].nom)) x.kg=String(p.kg??""); } }
       x.fait = !x.fait; save(s.id,true); render(); if (x.fait && !isCardio(sessions[s.id].exercices[i].nom)) startTimer(REST); break; }
-    case "finish": { if (chrono){ clearInterval(chronoTick); chrono = null; $("#chrono").hidden = true; }
+    case "finish": { if (chrono){ clearInterval(chronoTick); chrono = null; $("#chrono").hidden = true; keepAwake(false); }
       const ss = sessions[s.id];
       ss.exercices = (ss.exercices||[]).map(e=>({...e, series:e.series.filter(x=>x.reps!=="")})).filter(e=>e.series.length);
       if (!ss.exercices.length){ delete sessions[s.id]; save(s.id,true); render(); break; }
@@ -716,17 +716,26 @@ window.addEventListener("hashchange", () => { confirmDel=null; render(); window.
 
 /* ---------- minuteur de repos ---------- */
 /* ---------- chrono de durée (gainage, cardio) ---------- */
-let chrono = null, chronoTick = null;
+let chrono = null, chronoTick = null, wakeLock = null;
+async function keepAwake(on){
+  try{ if (window.Android && Android.keepScreenOn) Android.keepScreenOn(!!on); }catch{}
+  try{
+    if (on && !wakeLock && navigator.wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => { wakeLock = null; }); }
+    if (!on && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
+  }catch{ wakeLock = null; }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && chrono) keepAwake(true); });
 function startChrono(i,j){
   const s = current(); if (!s) return;
   stopTimer();
   chrono = {sid:s.id, i, j, start:Date.now()};
   $("#chronoLbl").textContent = "Série " + (j+1);
+  keepAwake(true);
   $("#chrono").hidden = false; clearInterval(chronoTick); chronoTick = setInterval(drawChrono, 250); drawChrono(); render();
 }
 function drawChrono(){ if (!chrono) return; const sec = Math.floor((Date.now()-chrono.start)/1000); $("#chronoVal").textContent = Math.floor(sec/60) + ":" + String(sec%60).padStart(2,"0"); }
 function endChrono(keep){
-  clearInterval(chronoTick); $("#chrono").hidden = true;
+  clearInterval(chronoTick); $("#chrono").hidden = true; keepAwake(false);
   const c = chrono; chrono = null; if (!c) return;
   const ss = sessions[c.sid], e = ss && ss.exercices[c.i], x = e && e.series[c.j];
   if (keep && x){
