@@ -35,7 +35,16 @@
 html,body{height:100%}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.45}
 .wrap{max-width:640px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:18px 120px}
-header.top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}
+.top-right{display:flex;align-items:center;gap:8px}
+.gear{background:var(--surface);border:1px solid var(--line);width:38px;height:38px;border-radius:50%;font-size:1.05rem;flex:none}
+.prefs{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:14px;display:flex;flex-direction:column;gap:14px}
+.swatches{display:flex;flex-wrap:wrap;gap:8px}
+.sw{width:32px;height:32px;border-radius:50%;border:3px solid var(--surface);box-shadow:0 0 0 1px var(--line)}
+.sw[aria-pressed="true"]{box-shadow:0 0 0 2px var(--ink)}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg button{background:var(--bg);color:var(--ink);border:1px solid var(--line);padding:8px 14px;font-weight:600;font-size:.9rem}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
 h1{font-family:var(--f-display);font-weight:800;font-size:2rem;letter-spacing:.01em;margin:0;text-transform:uppercase;line-height:1}
 .ver{font-family:var(--f-body);font-size:.8rem;font-weight:600;letter-spacing:.04em;text-transform:none;color:var(--muted);vertical-align:middle;margin-left:4px}
 h2{font-family:var(--f-display);font-weight:700;font-size:1.45rem;margin:0;text-wrap:balance}
@@ -151,9 +160,13 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v2.0</span></h1>
-    <span class="sync" id="sync">Chargement…</span>
+    <h1>Carnet de muscu <span class="ver">v2.1</span></h1>
+    <div class="top-right"><span class="sync" id="sync">Chargement…</span><button class="gear" id="prefsBtn" aria-expanded="false" aria-controls="prefs" title="Couleurs et thème">🎨</button></div>
   </header>
+  <section class="prefs" id="prefs" hidden>
+    <div class="stack" style="gap:8px"><span class="label">Couleur</span><div class="swatches" id="swatches"></div></div>
+    <div class="stack" style="gap:8px"><span class="label">Thème</span><div class="seg" id="themes"></div></div>
+  </section>
   <main id="view"></main>
 </div>
 <div class="timer chrono" id="chrono" hidden>
@@ -762,6 +775,38 @@ function drawTimer(){
 }
 $("#timerPlus").onclick = () => { timerEnd = Math.max(timerEnd, Date.now()) + 30000; drawTimer(); };
 $("#timerStop").onclick = stopTimer;
+
+/* ---------- couleurs et thème (mémorisés sur l'appareil) ---------- */
+const COULEURS = {
+  "Bleu":["#1f4fd1","#e2e9fb","#7d9dff","#1f2b45"], "Vert":["#15803d","#dcf2e3","#5fd08a","#173523"],
+  "Orange":["#c2410c","#fde8dc","#fb923c","#3a2416"], "Rouge":["#b91c1c","#fde2e2","#f87171","#3b1d1d"],
+  "Violet":["#6d28d9","#ece5fb","#a78bfa","#2a2045"], "Rose":["#be185d","#fbe3ee","#f472b6","#3b1d2c"],
+  "Turquoise":["#0e7490","#dcf1f5","#22d3ee","#13313a"], "Graphite":["#334155","#e5e9ef","#cbd5e1","#263040"]
+};
+const THEMES = [["auto","Auto"],["light","Clair"],["dark","Sombre"]];
+let prefs = { couleur:"Bleu", theme:"auto" };
+try{ Object.assign(prefs, JSON.parse(localStorage.getItem("carnet-prefs")||"{}")); }catch{}
+function applyPrefs(){
+  const c = COULEURS[prefs.couleur] || COULEURS.Bleu;
+  let st = document.getElementById("prefStyle");
+  if (!st){ st = document.createElement("style"); st.id = "prefStyle"; document.body.appendChild(st); }
+  const dark = `--accent:${c[2]};--accent-soft:${c[3]};--accent-ink:#0d1420`;
+  st.textContent = `:root{--accent:${c[0]};--accent-soft:${c[1]};--accent-ink:#ffffff}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){${dark}}}
+:root[data-theme="dark"]{${dark}}`;
+  if (prefs.theme === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", prefs.theme);
+  $("#swatches").innerHTML = Object.entries(COULEURS).map(([n,v])=>`<button class="sw" style="background:${v[0]}" data-couleur="${n}" aria-pressed="${n===prefs.couleur}" aria-label="${n}" title="${n}"></button>`).join("");
+  $("#themes").innerHTML = THEMES.map(([k,l])=>`<button data-theme-pick="${k}" aria-pressed="${k===prefs.theme}">${l}</button>`).join("");
+}
+function savePrefs(){ try{ localStorage.setItem("carnet-prefs", JSON.stringify(prefs)); }catch{} applyPrefs(); }
+$("#prefsBtn").onclick = () => { const p = $("#prefs"); p.hidden = !p.hidden; $("#prefsBtn").setAttribute("aria-expanded", String(!p.hidden)); };
+$("#prefs").addEventListener("click", ev => {
+  const c = ev.target.closest("[data-couleur]"), t = ev.target.closest("[data-theme-pick]");
+  if (c){ prefs.couleur = c.dataset.couleur; savePrefs(); }
+  if (t){ prefs.theme = t.dataset.themePick; savePrefs(); }
+});
+applyPrefs();
 
 render();
 initStore();
