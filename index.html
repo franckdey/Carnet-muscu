@@ -160,7 +160,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v2.3</span></h1>
+    <h1>Carnet de muscu <span class="ver">v2.4</span></h1>
     <div class="top-right"><span class="sync" id="sync">Chargement…</span><button class="gear" id="prefsBtn" aria-expanded="false" aria-controls="prefs" title="Couleurs et thème">🎨</button></div>
   </header>
   <section class="prefs" id="prefs" hidden>
@@ -622,27 +622,35 @@ function viewProg(){
     <p class="muted" style="font-size:.85rem;margin:0">Le 1RM estimé (formule d’Epley) donne la charge que tu pourrais soulever une seule fois, à partir de ta meilleure série du jour.</p>
   </div>`;
 }
+let cardioMode = "mois", cardioOpen = null;
 function cardioSummary(){
-  const per = {}; let km = 0, cal = 0, min = 0;
+  const groups = {};
   finished().forEach(s => (s.exercices||[]).forEach(e => {
     if (!isCardio(e.nom)) return;
-    const k = key(e.nom), d = exKm(e), c = exKcal(e), m = (e.series||[]).reduce((t,x)=>t+(+x.reps||0),0);
+    const d = exKm(e), c = exKcal(e), m = (e.series||[]).reduce((t,x)=>t+(+x.reps||0),0);
     if (!d && !c && !m) return;
-    per[k] = per[k] || {km:0, cal:0, min:0, n:0};
-    per[k].km += d; per[k].cal += c; per[k].min += m; per[k].n++;
-    km += d; cal += c; min += m;
+    const dt = new Date(s.debut);
+    const g = cardioMode === "mois" ? `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}` : cardioMode === "annee" ? String(dt.getFullYear()) : "tout";
+    const G = groups[g] = groups[g] || {km:0, cal:0, min:0, per:{}};
+    G.km += d; G.cal += c; G.min += m;
+    const k = key(e.nom), P = G.per[k] = G.per[k] || {km:0, cal:0, min:0, n:0};
+    P.km += d; P.cal += c; P.min += m; P.n++;
   }));
-  const rows = Object.entries(per).sort((a,b)=>b[1].km-a[1].km);
-  if (!rows.length) return "";
-  const dur = min >= 60 ? `${Math.floor(min/60)} h ${String(Math.round(min%60)).padStart(2,"0")}` : `${Math.round(min)} min`;
+  const keys = Object.keys(groups).sort().reverse();
+  if (!keys.length) return "";
+  const dur = min => min >= 60 ? `${Math.floor(min/60)} h ${String(Math.round(min%60)).padStart(2,"0")}` : `${Math.round(min)} min`;
+  const label = g => cardioMode === "mois" ? (s => s.charAt(0).toUpperCase()+s.slice(1))(new Date(+g.slice(0,4), +g.slice(5)-1, 1).toLocaleDateString("fr-FR",{month:"long",year:"numeric"})) : cardioMode === "annee" ? g : "Depuis le début";
+  const open = cardioOpen === "__none" ? null : (cardioOpen && groups[cardioOpen] ? cardioOpen : keys[0]);
   return `<section class="stack" style="gap:10px">
-    <span class="label">Cardio · cumul depuis le début</span>
-    <div class="records">
-      <div class="rec"><span class="label">Distance</span><b class="num">${fmtKg(Math.round(km*10)/10)} km</b></div>
-      <div class="rec"><span class="label">Calories</span><b class="num">${cal.toLocaleString("fr-FR")} kcal</b></div>
-      <div class="rec"><span class="label">Temps</span><b class="num">${dur}</b></div>
-    </div>
-    <div class="h-item" style="padding:4px 14px 10px">${rows.map(([k,v])=>`<div class="h-ex"><span class="h-name">${icon(k,"ico-s")}<span>${esc(k)} <span class="en">${v.n} séance${v.n>1?"s":""}</span></span></span><span class="num">${v.km?fmtDist(k,v.km):"—"} · ${v.cal.toLocaleString("fr-FR")} kcal</span></div>`).join("")}</div>
+    <div class="sess-head" style="align-items:center"><span class="label">Cardio · cumuls</span>
+      <div class="seg">${[["mois","Par mois"],["annee","Par an"],["tout","Total"]].map(([k,l])=>`<button data-act="cardioMode" data-mode="${k}" aria-pressed="${k===cardioMode}">${l}</button>`).join("")}</div></div>
+    <div class="hist">${keys.map(g => { const G = groups[g], op = g === open; return `<div class="h-item">
+      <button class="h-sum" data-act="cardioOpen" data-g="${g}" aria-expanded="${op}">
+        <span><span class="h-date">${esc(label(g))}</span><br><span class="muted" style="font-size:.85rem">${dur(G.min)}</span></span>
+        <span class="num" style="text-align:right"><b>${fmtKg(Math.round(G.km*10)/10)} km</b><br><span class="muted" style="font-size:.85rem">${G.cal.toLocaleString("fr-FR")} kcal</span></span>
+      </button>
+      ${op ? `<div class="h-body">${Object.entries(G.per).sort((a,b)=>b[1].km-a[1].km).map(([k,v])=>`<div class="h-ex"><span class="h-name">${icon(k,"ico-s")}<span>${esc(k)} <span class="en">${v.n} séance${v.n>1?"s":""}</span></span></span><span class="num">${v.km?fmtDist(k,v.km):"—"} · ${v.cal.toLocaleString("fr-FR")} kcal</span></div>`).join("")}</div>` : ""}
+    </div>`; }).join("")}</div>
   </section>`;
 }
 const progSelect = names => cardioSummary() + `<label class="label" for="progSel">Exercice</label>
@@ -711,6 +719,8 @@ document.addEventListener("click", ev => {
       ps.forEach((p,n)=>{ if (sessions[p.id].ordre !== n){ sessions[p.id].ordre = n; save(p.id,true); } }); render(); break; }
     case "planToggle": { const id = b.dataset.id; openPlans.has(id) ? openPlans.delete(id) : openPlans.add(id); saveOpenPlans(); render(); break; }
     case "planAll": openPlans.clear(); if (b.dataset.open==="1") plans().forEach(p=>openPlans.add(p.id)); saveOpenPlans(); render(); break;
+    case "cardioMode": cardioMode = b.dataset.mode; cardioOpen = null; render(); break;
+    case "cardioOpen": cardioOpen = b.getAttribute("aria-expanded")==="true" ? "__none" : b.dataset.g; render(); break;
     case "planOpen": planEdit = b.dataset.id; libOpen = null; render(); window.scrollTo(0,0); break;
     case "planDone": { const p = sessions[planEdit]; if (p && !(p.exercices||[]).length && !p.nom){ delete sessions[planEdit]; save(planEdit,true); } planEdit = null; render(); window.scrollTo(0,0); break; }
     case "planStart": startFromPlan(b.dataset.id); break;
