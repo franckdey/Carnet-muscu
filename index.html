@@ -160,7 +160,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v2.2</span></h1>
+    <h1>Carnet de muscu <span class="ver">v2.3</span></h1>
     <div class="top-right"><span class="sync" id="sync">Chargement…</span><button class="gear" id="prefsBtn" aria-expanded="false" aria-controls="prefs" title="Couleurs et thème">🎨</button></div>
   </header>
   <section class="prefs" id="prefs" hidden>
@@ -597,6 +597,8 @@ function viewProg(){
         <div class="rec"><span class="label">Durée max</span><b class="num">${Math.max(0,...pts.map(p=>p.min))} min</b></div>
         <div class="rec"><span class="label">Distance max</span><b class="num">${fmtDist(progEx, Math.max(0,...pts.map(p=>p.km)))}</b></div>
         <div class="rec"><span class="label">Calories max</span><b class="num">${Math.max(0,...pts.map(p=>p.cal))} kcal</b></div>
+        <div class="rec"><span class="label">Distance cumulée</span><b class="num">${fmtDist(progEx, pts.reduce((t,p)=>t+p.km,0))}</b></div>
+        <div class="rec"><span class="label">Calories cumulées</span><b class="num">${pts.reduce((t,p)=>t+p.cal,0).toLocaleString("fr-FR")} kcal</b></div>
         <div class="rec"><span class="label">Séances</span><b class="num">${pts.length}</b></div>
       </div>
       <div class="chart">${chart(pts, useKm ? (inM(progEx) ? "Distance (m)" : "Distance (km)") : "Durée (min)")}</div>
@@ -620,7 +622,30 @@ function viewProg(){
     <p class="muted" style="font-size:.85rem;margin:0">Le 1RM estimé (formule d’Epley) donne la charge que tu pourrais soulever une seule fois, à partir de ta meilleure série du jour.</p>
   </div>`;
 }
-const progSelect = names => `<label class="label" for="progSel">Exercice</label>
+function cardioSummary(){
+  const per = {}; let km = 0, cal = 0, min = 0;
+  finished().forEach(s => (s.exercices||[]).forEach(e => {
+    if (!isCardio(e.nom)) return;
+    const k = key(e.nom), d = exKm(e), c = exKcal(e), m = (e.series||[]).reduce((t,x)=>t+(+x.reps||0),0);
+    if (!d && !c && !m) return;
+    per[k] = per[k] || {km:0, cal:0, min:0, n:0};
+    per[k].km += d; per[k].cal += c; per[k].min += m; per[k].n++;
+    km += d; cal += c; min += m;
+  }));
+  const rows = Object.entries(per).sort((a,b)=>b[1].km-a[1].km);
+  if (!rows.length) return "";
+  const dur = min >= 60 ? `${Math.floor(min/60)} h ${String(Math.round(min%60)).padStart(2,"0")}` : `${Math.round(min)} min`;
+  return `<section class="stack" style="gap:10px">
+    <span class="label">Cardio · cumul depuis le début</span>
+    <div class="records">
+      <div class="rec"><span class="label">Distance</span><b class="num">${fmtKg(Math.round(km*10)/10)} km</b></div>
+      <div class="rec"><span class="label">Calories</span><b class="num">${cal.toLocaleString("fr-FR")} kcal</b></div>
+      <div class="rec"><span class="label">Temps</span><b class="num">${dur}</b></div>
+    </div>
+    <div class="h-item" style="padding:4px 14px 10px">${rows.map(([k,v])=>`<div class="h-ex"><span class="h-name">${icon(k,"ico-s")}<span>${esc(k)} <span class="en">${v.n} séance${v.n>1?"s":""}</span></span></span><span class="num">${v.km?fmtDist(k,v.km):"—"} · ${v.cal.toLocaleString("fr-FR")} kcal</span></div>`).join("")}</div>
+  </section>`;
+}
+const progSelect = names => cardioSummary() + `<label class="label" for="progSel">Exercice</label>
     <select id="progSel">${names.map(n=>`<option value="${esc(n)}" ${n===progEx?"selected":""}>${esc(n)}${subOf(n)?` (${esc(subOf(n))})`:""}</option>`).join("")}</select>`;
 
 function chart(pts, label){

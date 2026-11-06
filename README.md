@@ -8,6 +8,8 @@ Appli web installable (PWA) pour noter ses séances de musculation : machines (n
 
 ## Versions
 
+- v2.3 : cumul cardio (distance, calories, temps) dans Progrès
+
 - v2.2 : Leg Raise au poids du corps (reps seules)
 - v2.1 : choix de la couleur et du thème
 - v2.0 : écran maintenu allumé pendant le chrono
