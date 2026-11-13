@@ -159,6 +159,9 @@ input,select,textarea{font:inherit;color:var(--ink);background:var(--surface);bo
 .lg i{width:10px;height:10px;border-radius:50%;flex:none}
 .lg[aria-pressed="false"]{opacity:.45}
 .lg[aria-pressed="false"] i{background:transparent!important;box-shadow:inset 0 0 0 1.5px var(--muted)}
+.hg{display:flex;flex-direction:column;gap:10px}
+.hg-sum{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;background:var(--accent-soft);color:inherit;text-align:left;padding:10px 14px;border-radius:var(--r)}
+.hg-sum .h-date{display:flex;gap:8px;align-items:baseline}
 .plate{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
 
 /* onglets et minuteur */
@@ -180,7 +183,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v2.5</span></h1>
+    <h1>Carnet de muscu <span class="ver">v2.6</span></h1>
     <div class="top-right"><span class="sync" id="sync">Chargement…</span><button class="gear" id="prefsBtn" aria-expanded="false" aria-controls="prefs" title="Couleurs et thème">🎨</button></div>
   </header>
   <section class="prefs" id="prefs" hidden>
@@ -408,6 +411,7 @@ const plateColor = kg => kg>=100?"var(--plate-25)":kg>=60?"var(--plate-20)":kg>=
 
 /* ---------- vues ---------- */
 const tab = () => (["seance","prevues","historique","progres"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "seance");
+let histMode = "mois"; const histOpen = {mois:new Map(), annee:new Map()};
 let openHist = null, confirmDel = null, progEx = null, planEdit = null;
 const openPlans = new Set((()=>{ try{ return JSON.parse(localStorage.getItem("carnet-plans-ouverts")||"[]"); }catch{ return []; } })());
 const saveOpenPlans = () => { try{ localStorage.setItem("carnet-plans-ouverts", JSON.stringify([...openPlans])); }catch{} };
@@ -530,9 +534,20 @@ function viewHist(){
   const f = finished();
   if (!f.length) return `<div class="empty"><h2>Aucune séance terminée</h2><p>Quand tu termines une séance, elle apparaît ici avec ses exercices, ses séries et le volume soulevé.</p><a class="btn" style="text-align:center;text-decoration:none" href="#seance">Commencer une séance</a></div>${backupBlock()}`;
   const total = f.length, mois = f.filter(s=>Date.now()-s.debut < 30*864e5).length;
+  const gk = t => { const d = new Date(t); return histMode==="annee" ? String(d.getFullYear()) : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
+  const glabel = g => histMode==="annee" ? g : (x => x.charAt(0).toUpperCase()+x.slice(1))(new Date(+g.slice(0,4), +g.slice(5)-1, 1).toLocaleDateString("fr-FR",{month:"long",year:"numeric"}));
+  const groups = []; f.forEach(s => { const g = gk(s.debut); if (!groups.length || groups[groups.length-1].g!==g) groups.push({g, ss:[]}); groups[groups.length-1].ss.push(s); });
+  const isOpen = g => histOpen[histMode].has(g) ? histOpen[histMode].get(g) : g===groups[0].g;
   return `<div class="stack">
     <div class="sess-head"><h2>${total} séance${total>1?"s":""}</h2><span class="muted">${mois} ces 30 derniers jours</span></div>
-    <div class="hist">${f.map(s=>{
+    <div class="seg">${[["mois","Par mois"],["annee","Par an"]].map(([k,l])=>`<button data-act="histMode" data-mode="${k}" aria-pressed="${k===histMode}">${l}</button>`).join("")}</div>
+    ${groups.map(({g, ss}) => { const op = isOpen(g), vol = ss.reduce((t,s)=>t+volume(s),0), kc = ss.reduce((t,s)=>t+kcal(s),0),
+      min = ss.reduce((t,s)=>t+(s.fin?Math.round((s.fin-s.debut)/60000):0),0);
+      return `<div class="hg"><button class="hg-sum" data-act="histGroup" data-g="${g}" aria-expanded="${op}">
+        <span><span class="h-date"><span class="chev">${op?"▾":"▸"}</span>${esc(glabel(g))}</span><span class="muted" style="font-size:.85rem;margin-left:22px">${ss.length} séance${ss.length>1?"s":""}${min?` · ${min>=60?`${Math.floor(min/60)} h ${String(min%60).padStart(2,"0")}`:`${min} min`}`:""}</span></span>
+        <span class="num" style="text-align:right"><b>${fmtKg(vol)} kg</b>${kc?`<br><span class="muted" style="font-size:.85rem">${kc.toLocaleString("fr-FR")} kcal</span>`:""}</span>
+      </button>
+    ${op ? `<div class="hist">${ss.map(s=>{
       const dur = s.fin ? Math.round((s.fin-s.debut)/60000) : null;
       const open = openHist===s.id;
       return `<div class="h-item">
@@ -546,7 +561,7 @@ function viewHist(){
             ${current() ? `<span class="muted" style="font-size:.85rem;margin-right:auto">Termine la séance en cours pour reprendre celle-ci.</span>` : `<button class="btn small" data-act="repeat" data-id="${s.id}">Refaire cette séance</button><button class="btn ghost small" style="margin-right:auto" data-act="resume" data-id="${s.id}">Reprendre</button>`}
             ${confirmDel===s.id ? `<button class="btn danger small" data-act="del" data-id="${s.id}">Confirmer la suppression</button>` : `<button class="btn ghost small" data-act="askdel" data-id="${s.id}">Supprimer</button>`}
           </div></div>` : ""}
-      </div>`; }).join("")}</div>${backupBlock()}</div>`;
+      </div>`; }).join("")}</div>` : ""}</div>`; }).join("")}${backupBlock()}</div>`;
 }
 function backupBlock(){
   return `<div class="empty" style="margin-top:14px"><h2>Sauvegarde</h2>
@@ -841,6 +856,8 @@ document.addEventListener("click", ev => {
     case "planAll": openPlans.clear(); if (b.dataset.open==="1") plans().forEach(p=>openPlans.add(p.id)); saveOpenPlans(); render(); break;
     case "cardioMode": cardioMode = b.dataset.mode; cardioOpen = null; render(); break;
     case "multiTog": { const k = b.dataset.nom; if (multiSel.has(k)) multiSel.delete(k); else multiSel.add(k); saveMulti(); render(); break; }
+    case "histMode": histMode = b.dataset.mode; render(); break;
+    case "histGroup": histOpen[histMode].set(b.dataset.g, b.getAttribute("aria-expanded")!=="true"); render(); break;
     case "recapPick": progEx = b.dataset.nom; render(); requestAnimationFrame(()=>{ const el = document.getElementById("progSel"); if (el) el.scrollIntoView({behavior:"smooth", block:"start"}); }); break;
     case "cardioOpen": cardioOpen = b.getAttribute("aria-expanded")==="true" ? "__none" : b.dataset.g; render(); break;
     case "planOpen": planEdit = b.dataset.id; libOpen = null; render(); window.scrollTo(0,0); break;

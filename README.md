@@ -8,6 +8,7 @@ Appli web installable (PWA) pour noter ses séances de musculation : machines (n
 
 ## Versions
 
+- v2.6 : historique groupé par mois ou par an
 - v2.5 : tableau récap de toutes les activités + graphe d’évolution comparée
 - v2.4 : cumuls cardio par mois, par an ou total
 
