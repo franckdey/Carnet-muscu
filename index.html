@@ -162,6 +162,11 @@ input,select,textarea{font:inherit;color:var(--ink);background:var(--surface);bo
 .hg{display:flex;flex-direction:column;gap:10px}
 .hg-sum{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;background:var(--accent-soft);color:inherit;text-align:left;padding:10px 14px;border-radius:var(--r)}
 .hg-sum .h-date{display:flex;gap:8px;align-items:baseline}
+.cumul{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;background:var(--ok-soft);border-radius:8px;padding:8px 12px}
+.cumul b{font-family:var(--f-display);font-size:1.35rem;color:var(--ok);line-height:1.1}
+.cumul .muted{font-size:.82rem}
+.cumul.zero{background:var(--bg)}
+.cumul.zero b{color:var(--muted)}
 .plate{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
 
 /* onglets et minuteur */
@@ -183,7 +188,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v2.6</span></h1>
+    <h1>Carnet de muscu <span class="ver">v2.7</span></h1>
     <div class="top-right"><span class="sync" id="sync">Chargement…</span><button class="gear" id="prefsBtn" aria-expanded="false" aria-controls="prefs" title="Couleurs et thème">🎨</button></div>
   </header>
   <section class="prefs" id="prefs" hidden>
@@ -506,6 +511,25 @@ function viewPlans(){
   </div>`;
 }
 
+/* poids (ou reps, ou secondes) cumulés sur les séries validées */
+function cumulOf(n, series, onlyDone){
+  const ok = (series||[]).filter(x => x.reps && (!onlyDone || x.fait));
+  const v = ok.reduce((t,x)=> t + (isBW(n) ? (+x.reps||0) : (+x.reps||0)*(+x.kg||0)), 0);
+  return {v, n: ok.length};
+}
+function cumulHtml(e, last){
+  const n = e.nom, cur = cumulOf(n, e.series, true), tot = (e.series||[]).length;
+  const f = v => isBW(n) ? `${v} reps` : isTimed(n) ? (v>=60 ? `${Math.floor(v/60)} min ${String(Math.round(v%60)).padStart(2,"0")} s` : `${Math.round(v)} s`) : `${fmtKg(v)} kg`;
+  const lbl = isBW(n) ? "Reps cumulées" : isTimed(n) ? "Durée cumulée" : "Poids cumulé";
+  const prev = last ? cumulOf(n, last.series, false).v : 0;
+  return `<span><span class="label">${lbl}</span><br><b class="num">${f(cur.v)}</b> <span class="muted">· ${cur.n}/${tot} validée${cur.n>1?"s":""}</span></span>${prev ? `<span class="muted num">Dernière fois : ${f(prev)}${cur.v ? ` (${Math.round(cur.v/prev*100)} %)` : ""}</span>` : ""}`;
+}
+function refreshCumul(sid, i){
+  const el = document.getElementById("cumul-"+i), e = sessions[sid]?.exercices?.[i];
+  if (!el || !e) return;
+  el.innerHTML = cumulHtml(e, lastFor(e.nom, sid));
+  el.classList.toggle("zero", !cumulOf(e.nom, e.series, true).v);
+}
 function exCard(s,e,i){
   const last = lastFor(e.nom, s.id), c = isCardio(e.nom), t = isTimed(e.nom), bw = isBW(e.nom);
   const lastTxt = last ? `Dernière fois (${fmtShort(last.date)}) : ${last.series.map(x=>fmtSet(e.nom,c?{...x,kg:"",kcal:""}:x)).join(" · ")}${last.tot}` : "Première fois sur cet exercice";
@@ -522,6 +546,7 @@ function exCard(s,e,i){
         <button class="done" aria-pressed="${!!x.fait}" data-act="done" data-i="${i}" data-j="${j}" aria-label="Série ${j+1} faite">✓</button>
         <button class="x" data-act="rmset" data-i="${i}" data-j="${j}" aria-label="Supprimer la série ${j+1}">✕</button>`; }).join("")}
     </div>
+    ${c ? "" : `<div class="cumul${cumulOf(e.nom, e.series, true).v ? "" : " zero"}" id="cumul-${i}">${cumulHtml(e, last)}</div>`}
     <button class="btn ghost small" data-act="addset" data-i="${i}">+ Série</button>
     ${c ? `<div class="ex-kcal"><label for="km-${i}">Distance de l’activité</label>${(()=>{ const m = inM(e.nom), v = e.km!==undefined&&e.km!==""?+e.km:exKm(e), conv = k => m ? Math.round(k*1000) : k;
       return `<input id="km-${i}" inputmode="${m?"numeric":"decimal"}" data-efield="km" data-unit="${m?"m":"km"}" data-i="${i}" value="${v?esc(conv(v)):""}" placeholder="${last&&last.km?esc(conv(last.km)):(m?"m":"km")}"><span>${m?"m":"km"}</span>`; })()}</div>
@@ -900,7 +925,7 @@ document.addEventListener("input", ev => {
   if (el.id==="newEx"){ $("#sugg").innerHTML = suggestions(el.value); return; }
   if (el.dataset.f && s){
     sessions[s.id].exercices[+el.dataset.i].series[+el.dataset.j][el.dataset.f] = el.value.replace(",",".").replace(/[^\d.]/g,"");
-    save(s.id);
+    save(s.id); refreshCumul(s.id, +el.dataset.i);
     const meta = document.querySelector(".sess-head .meta");
     if (meta) meta.querySelectorAll("b")[0].textContent = nbSeries(sessions[s.id]), meta.querySelectorAll("b")[1].textContent = fmtKg(volume(sessions[s.id]))+" kg"; const bs = meta && meta.querySelectorAll("b"); if (bs && bs[2]) bs[2].textContent = kcal(sessions[s.id])+" kcal";
   }
