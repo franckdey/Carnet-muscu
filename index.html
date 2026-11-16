@@ -174,6 +174,7 @@ input,select,textarea{font:inherit;color:var(--ink);background:var(--surface);bo
 .note20.hi{background:var(--ok-soft);color:var(--ok)}
 .note20.mid{background:var(--accent-soft);color:var(--accent)}
 .score-box{background:var(--bg);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;font-size:.86rem}
+.score-why{font-size:.74rem;margin:-4px 0 2px}
 .score-bar{display:grid;grid-template-columns:78px 1fr 44px;gap:8px;align-items:center}
 .score-bar i{display:block;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
 .score-bar i b{display:block;height:100%;background:var(--accent)}
@@ -198,7 +199,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v3.0</span></h1>
+    <h1>Carnet de muscu <span class="ver">v3.1</span></h1>
     <div class="top-right"><span class="sync" id="sync">Chargement…</span><button class="gear" id="prefsBtn" aria-expanded="false" aria-controls="prefs" title="Couleurs et thème">🎨</button></div>
   </header>
   <section class="prefs" id="prefs" hidden>
@@ -405,57 +406,82 @@ function lastFor(name, excludeId){
   if (!s) return null; const fe = s.exercices.find(same);
   return { date:s.debut, series:fe.series.filter(x=>x.reps), kcal: isCardio(name) ? exKcal(fe) : 0, km: isCardio(name) ? exKm(fe) : 0, tot: isCardio(name) ? cardioTot(fe) : "" };
 }
-/* ---------- note de séance sur 20 ----------
-   Volume / effort (12 pts) : chaque machine rapporte des points selon ce que tu as fait par rapport
-   à ta moyenne récente sur cette machine (max 1,25), pondérés : polyarticulaire 1,2, isolation 1,
-   abdos 0,7, cardio selon la durée (20 min = 1, max 1,5). 6 points d'effort = 12/12.
-   Progrès (5 pts) : part des machines où tu fais mieux que la dernière fois.
-   Variété (3 pts) : nombre de groupes travaillés (3 groupes = 3/3). */
+/* ---------- note de séance sur 20, six critères ----------
+   Volume (4)      : volume muscu de la séance comparé à la médiane de tes 8 dernières séances muscu.
+   Intensité (4)   : pour chaque machine, ta meilleure série (1RM estimé, reps ou secondes) comparée à ton record.
+   Progression (4) : pour chaque machine, l'écart avec la dernière fois (-10 % = 0, égal = moitié, +10 % = plein).
+   Cardio (3)      : durée (30 min = 2 pts) + intensité (allure ou kcal/min comparées à ton meilleur, 1 pt).
+   Engagement (2)  : séries de muscu (15 = 1 pt) + durée de la séance (60 min = 1 pt).
+   Variété (3)     : groupes musculaires (3 = 2 pts) + nombre de machines (5 = 1 pt). */
 const COMPOUND = new Set(["Chest Press","Bench Press","Incline Dumbbell Press","Dips","Lat Pulldown","Low Row","Seated Row","Assisted Pull-up","Pull-up","Dumbbell Row","Deadlift","Shoulder Press","Military Press","Leg Press","Squat","Smith Machine Squat","Lunges","Hip Thrust"]);
+const lin = (v, a, b) => Math.max(0, Math.min(1, (v - a) / (b - a)));
+const machW = n => isCardio(n) ? 1 : byName(n)?.groupe==="Abdos" ? 0.7 : COMPOUND.has(key(n)) ? 1.2 : 1;
 function exPerf(e){
   const n = e.nom, ser = (e.series||[]).filter(x=>x.reps);
   if (!ser.length) return null;
-  if (isCardio(n)) return { v: exMin(e), pace: exPace(e), kcal: exKcal(e) };
-  if (isBW(n)) return { v: ser.reduce((t,x)=>t+(+x.reps||0),0) };
-  const v = ser.reduce((t,x)=>t+(+x.reps||0)*(+x.kg||0),0);
-  return { v: v || ser.reduce((t,x)=>t+(+x.reps||0),0) };
+  if (isCardio(n)){ const m = exMin(e); return m ? { v: m, pace: exPace(e), kpm: exKcal(e) ? exKcal(e)/m : 0 } : null; }
+  if (isBW(n)) return { v: ser.reduce((t,x)=>t+(+x.reps||0),0), top: Math.max(...ser.map(x=>+x.reps||0)), sets: ser.length };
+  if (isTimed(n)) return { v: ser.reduce((t,x)=>t+(+x.reps||0)*(+x.kg||0),0), top: Math.max(...ser.map(x=>+x.kg||0)), sets: ser.length };
+  const vol = ser.reduce((t,x)=>t+(+x.reps||0)*(+x.kg||0),0);
+  return { v: vol || ser.reduce((t,x)=>t+(+x.reps||0),0), top: Math.max(...ser.map(x=>e1rm(+x.kg||0, +x.reps||0))) || Math.max(...ser.map(x=>+x.reps||0)), sets: ser.length, vol };
 }
 const scoreCache = new Map();
 function sessionScore(s){
-  const ck = s.id + ":" + JSON.stringify(s.exercices) + ":" + finished().length;
-  if (scoreCache.has(s.id) && scoreCache.get(s.id).ck === ck) return scoreCache.get(s.id).r;
+  const ck = JSON.stringify(s.exercices) + ":" + s.fin + ":" + finished().length;
+  const hit = scoreCache.get(s.id); if (hit && hit.ck === ck) return hit.r;
   const prior = finished().filter(p => p.debut < s.debut && p.id !== s.id); // du plus récent au plus ancien
-  let pts = 0, nPrev = 0, better = 0; const groups = new Set();
+  const histOf = k => { const h = []; prior.forEach(p => (p.exercices||[]).forEach(x => { if (key(x.nom)===k){ const q = exPerf(x); if (q) h.push(q); } })); return h; };
+  const groups = new Set(); let machines = 0, sets = 0, vol = 0, cardioMin = 0;
+  const intens = [], prog = [], cardInt = [];
   (s.exercices||[]).forEach(e => {
-    const pf = exPerf(e); if (!pf || !pf.v) return;
-    const k = key(e.nom), g = byName(e.nom)?.groupe || "Autres"; groups.add(g);
-    const hist = []; prior.forEach(p => (p.exercices||[]).forEach(x => { if (key(x.nom)===k){ const h = exPerf(x); if (h && h.v) hist.push(h); } }));
-    let w, ratio;
-    if (isCardio(e.nom)){ w = 1; ratio = Math.min(1.5, pf.v/20); }
-    else {
-      w = g==="Abdos" ? 0.7 : COMPOUND.has(k) ? 1.2 : 1;
-      const ref = hist.slice(0,5).map(h=>h.v).sort((a,b)=>a-b);
-      const med = ref.length ? ref[Math.floor(ref.length/2)] : 0;
-      ratio = med ? Math.min(1.25, pf.v/med) : 1;
+    const pf = exPerf(e); if (!pf) return;
+    const k = key(e.nom), hist = histOf(k), w = machW(e.nom);
+    groups.add(byName(e.nom)?.groupe || "Autres"); machines++;
+    if (isCardio(e.nom)){
+      cardioMin += pf.v;
+      const bp = Math.min(...hist.map(h=>h.pace).filter(v=>v>0), Infinity), bk = Math.max(0, ...hist.map(h=>h.kpm||0));
+      if (pf.pace && isFinite(bp)) cardInt.push(lin(bp/pf.pace, 0.85, 1));
+      else if (pf.kpm && bk) cardInt.push(lin(pf.kpm/bk, 0.85, 1));
+      if (hist.length){ const h = hist[0];
+        const d = pf.pace && h.pace ? (h.pace - pf.pace)/h.pace : pf.kpm && h.kpm ? (pf.kpm - h.kpm)/h.kpm : (pf.v - h.v)/h.v;
+        prog.push({w, s: lin(d, -0.1, 0.1)}); }
+      return;
     }
-    pts += w*ratio;
-    if (hist.length){ nPrev++; const h = hist[0];
-      const up = isCardio(e.nom) ? (pf.pace && h.pace ? pf.pace < h.pace : false) || pf.v > h.v || (pf.kcal||0) > (h.kcal||0) : pf.v > h.v;
-      if (up) better++; }
+    sets += pf.sets; vol += pf.vol || 0;
+    const rec = Math.max(0, ...hist.map(h=>h.top||0));
+    intens.push({w, s: rec ? lin(pf.top/rec, 0.7, 1) : 0.75});
+    if (hist.length) prog.push({w, s: lin((pf.v - hist[0].v)/(hist[0].v||1), -0.1, 0.1)});
   });
-  if (!groups.size){ const r = null; scoreCache.set(s.id,{ck,r}); return r; }
-  const vol = 12*Math.min(1, pts/6), prog = nPrev ? 5*better/nPrev : 2.5, vari = 3*Math.min(1, groups.size/3);
-  const r = { note: Math.round((vol+prog+vari)*10)/10, vol, prog, vari, better, nPrev, groups: groups.size, pts };
+  if (!machines){ scoreCache.set(s.id,{ck,r:null}); return null; }
+  const wavg = a => a.reduce((t,x)=>t+x.w*x.s,0) / a.reduce((t,x)=>t+x.w,0);
+  const prevVols = prior.map(p => (p.exercices||[]).reduce((t,e)=>{ const q = !isCardio(e.nom) && exPerf(e); return t + (q && q.vol || 0); }, 0)).filter(v=>v>0).slice(0,8).sort((a,b)=>a-b);
+  const medVol = prevVols.length ? prevVols[Math.floor(prevVols.length/2)] : 0;
+  const dur = s.fin ? (s.fin - s.debut)/60000 : 0;
+  const c = {
+    volume: vol ? (medVol ? (vol/medVol < 1 ? 3*lin(vol/medVol, 0.5, 1) : 3 + lin(vol/medVol, 1, 1.3)) : 2.5) : 0,
+    intensite: intens.length ? 4*wavg(intens) : 0,
+    progression: prog.length ? 4*wavg(prog) : 2,
+    cardio: cardioMin ? 2*Math.min(1, cardioMin/30) + (cardInt.length ? cardInt.reduce((a,b)=>a+b,0)/cardInt.length : 0.5) : 0,
+    engagement: Math.min(1, sets/15) + Math.min(1, dur/60),
+    variete: 2*Math.min(1, groups.size/3) + Math.min(1, machines/5)
+  };
+  const note = Math.round(Object.values(c).reduce((a,b)=>a+b,0)*10)/10;
+  const r = { note, c, sets, dur, cardioMin, groups: groups.size, machines, vol, medVol, nProg: prog.length, nInt: intens.length };
   scoreCache.set(s.id,{ck,r}); return r;
 }
 const fmtNote = n => (Math.round(n*10)/10).toLocaleString("fr-FR");
 const noteBadge = sc => sc ? `<span class="note20 ${sc.note>=15?"hi":sc.note>=10?"mid":""}" title="Note de la séance">${fmtNote(sc.note)}<small>/20</small></span>` : "";
 function scoreBox(sc){
   if (!sc) return "";
-  const bar = (l, v, m) => `<div class="score-bar"><span>${l}</span><i><b style="width:${Math.round(v/m*100)}%"></b></i><span class="num" style="text-align:right">${fmtNote(v)}/${m}</span></div>`;
+  const c = sc.c, row = (l, v, m, why) => `<div class="score-bar"><span>${l}</span><i><b style="width:${Math.round(v/m*100)}%"></b></i><span class="num" style="text-align:right">${fmtNote(v)}/${m}</span></div><span class="muted score-why">${why}</span>`;
   return `<div class="score-box"><span><span class="label">Note de la séance</span> ${noteBadge(sc)}</span>
-    ${bar("Effort", sc.vol, 12)}${bar("Progrès", sc.prog, 5)}${bar("Variété", sc.vari, 3)}
-    <span class="muted" style="font-size:.78rem">${sc.nPrev ? `Mieux que la dernière fois sur ${sc.better} machine${sc.better>1?"s":""} sur ${sc.nPrev}` : "Première fois sur ces machines : progrès compté à moitié"} · ${sc.groups} groupe${sc.groups>1?"s":""} travaillé${sc.groups>1?"s":""}</span></div>`;
+    ${row("Volume", c.volume, 4, sc.vol ? `${fmtKg(sc.vol)} kg${sc.medVol ? ` · ta médiane récente ${fmtKg(sc.medVol)} kg` : " · première référence"}` : "pas de muscu")}
+    ${row("Intensité", c.intensite, 4, sc.nInt ? "meilleure série de chaque machine comparée à ton record" : "pas de muscu")}
+    ${row("Progression", c.progression, 4, sc.nProg ? `comparée à la dernière fois sur ${sc.nProg} machine${sc.nProg>1?"s":""}` : "rien à comparer encore : note neutre")}
+    ${row("Cardio", c.cardio, 3, sc.cardioMin ? `${Math.round(sc.cardioMin)} min · allure ou kcal/min comparées à ton meilleur` : "pas de cardio")}
+    ${row("Engagement", c.engagement, 2, `${sc.sets} séries de muscu${sc.dur ? ` · ${Math.round(sc.dur)} min de séance` : ""}`)}
+    ${row("Variété", c.variete, 3, `${sc.groups} groupe${sc.groups>1?"s":""} · ${sc.machines} machine${sc.machines>1?"s":""}`)}
+  </div>`;
 }
 function sessName(s){
   if (s.nom) return s.nom;

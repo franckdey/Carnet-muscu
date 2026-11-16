@@ -8,6 +8,7 @@ Appli web installable (PWA) pour noter ses séances de musculation : machines (n
 
 ## Versions
 
+- v3.1 : note de séance à six critères (volume, intensité, progression, cardio, engagement, variété)
 - v3.0 : note sur 20 de chaque séance (effort, progrès, variété)
 - v2.9 : machine Abdominal ajoutée
 - v2.8 : allure moyenne au km et meilleure moyenne sur le cardio
