@@ -167,6 +167,8 @@ input,select,textarea{font:inherit;color:var(--ink);background:var(--surface);bo
 .cumul .muted{font-size:.82rem}
 .cumul.zero{background:var(--bg)}
 .cumul.zero b{color:var(--muted)}
+.pace-line{background:var(--accent-soft);border-radius:8px;padding:8px 12px;font-size:.88rem}
+.pace-line b{font-family:var(--f-display);font-size:1.2rem;margin-left:4px}
 .plate{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
 
 /* onglets et minuteur */
@@ -188,7 +190,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
 
 <div class="wrap">
   <header class="top">
-    <h1>Carnet de muscu <span class="ver">v2.7</span></h1>
+    <h1>Carnet de muscu <span class="ver">v2.8</span></h1>
     <div class="top-right"><span class="sync" id="sync">Chargement…</span><button class="gear" id="prefsBtn" aria-expanded="false" aria-controls="prefs" title="Couleurs et thème">🎨</button></div>
   </header>
   <section class="prefs" id="prefs" hidden>
@@ -380,7 +382,11 @@ const exKm = e => (e.km!==undefined && e.km!=="") ? (+e.km||0) : (e.series||[]).
 const METRES = new Set(["Rower"]);
 const inM = n => METRES.has(key(n));
 const fmtDist = (n, km) => inM(n) ? `${Math.round(km*1000).toLocaleString("fr-FR")} m` : `${fmtKg(km)} km`;
-const cardioTot = e => `${exKm(e)?` · ${fmtDist(e.nom, exKm(e))}`:""}${exKcal(e)?` · ${exKcal(e)} kcal`:""}`;
+/* allure : secondes par km */
+const exMin = e => (e.series||[]).reduce((t,x)=>t+(+x.reps||0),0);
+const exPace = e => { const km = exKm(e), m = exMin(e); return km>0 && m>0 ? m*60/km : 0; };
+const fmtPace = sec => { if (!sec || !isFinite(sec)) return ""; const t = Math.round(sec); return `${Math.floor(t/60)}:${String(t%60).padStart(2,"0")}`; };
+const cardioTot = e => `${exKm(e)?` · ${fmtDist(e.nom, exKm(e))}`:""}${exKcal(e)?` · ${exKcal(e)} kcal`:""}${exPace(e)?` · moy. ${fmtPace(exPace(e))}/km`:""}`;
 const exKcal = e => (e.kcal!==undefined && e.kcal!=="") ? (+e.kcal||0) : (e.series||[]).reduce((u,x)=>u+(+x.kcal||0),0);
 const kcal = s => (s.exercices||[]).reduce((t,e)=>t+(isCardio(e.nom)?exKcal(e):0),0);
 const volume = s => (s.exercices||[]).reduce((t,e)=>t+(isCardio(e.nom)||isTimed(e.nom)||isBW(e.nom)?0:(e.series||[]).reduce((u,x)=>u+(+x.reps||0)*(+x.kg||0),0)),0);
@@ -524,11 +530,21 @@ function cumulHtml(e, last){
   const prev = last ? cumulOf(n, last.series, false).v : 0;
   return `<span><span class="label">${lbl}</span><br><b class="num">${f(cur.v)}</b> <span class="muted">· ${cur.n}/${tot} validée${cur.n>1?"s":""}</span></span>${prev ? `<span class="muted num">Dernière fois : ${f(prev)}${cur.v ? ` (${Math.round(cur.v/prev*100)} %)` : ""}</span>` : ""}`;
 }
+function refreshPace(sid, i){ const el = document.getElementById("avg-"+i), e = sessions[sid]?.exercices?.[i]; if (el && e) el.innerHTML = paceHtml(e, sid); }
 function refreshCumul(sid, i){
   const el = document.getElementById("cumul-"+i), e = sessions[sid]?.exercices?.[i];
   if (!el || !e) return;
   el.innerHTML = cumulHtml(e, lastFor(e.nom, sid));
   el.classList.toggle("zero", !cumulOf(e.nom, e.series, true).v);
+}
+function bestAvg(n, excl){ const k = key(n); let b = 0;
+  finished().forEach(s => { if (s.id===excl) return; (s.exercices||[]).forEach(e => { if (key(e.nom)===k){ const v = exPace(e); if (v>0 && (!b || v<b)) b = v; } }); });
+  return b; }
+function paceHtml(e, sid){
+  const p = exPace(e), rec = bestAvg(e.nom, sid);
+  if (!p) return `<span class="label">Allure moyenne</span> <span class="muted">renseigne minutes et distance</span>${rec?`<br><span class="label">Meilleure moyenne</span> <b class="num">${fmtPace(rec)} /km</b>`:""}`;
+  const better = rec && p < rec;
+  return `<span class="label">Allure moyenne</span> <b class="num">${fmtPace(p)} /km</b>${better ? ` <span class="up">▲ nouveau record</span>` : ""}${rec ? `<br><span class="label">Meilleure moyenne</span> <b class="num">${fmtPace(rec)} /km</b>` : ""}`;
 }
 function exCard(s,e,i){
   const last = lastFor(e.nom, s.id), c = isCardio(e.nom), t = isTimed(e.nom), bw = isBW(e.nom);
@@ -550,6 +566,7 @@ function exCard(s,e,i){
     <button class="btn ghost small" data-act="addset" data-i="${i}">+ Série</button>
     ${c ? `<div class="ex-kcal"><label for="km-${i}">Distance de l’activité</label>${(()=>{ const m = inM(e.nom), v = e.km!==undefined&&e.km!==""?+e.km:exKm(e), conv = k => m ? Math.round(k*1000) : k;
       return `<input id="km-${i}" inputmode="${m?"numeric":"decimal"}" data-efield="km" data-unit="${m?"m":"km"}" data-i="${i}" value="${v?esc(conv(v)):""}" placeholder="${last&&last.km?esc(conv(last.km)):(m?"m":"km")}"><span>${m?"m":"km"}</span>`; })()}</div>
+    <div class="pace-line" id="avg-${i}">${paceHtml(e, s.id)}</div>
     <div class="ex-kcal"><label for="kcal-${i}">Calories de l’activité</label><input id="kcal-${i}" inputmode="numeric" data-efield="kcal" data-i="${i}" value="${esc(e.kcal!==undefined&&e.kcal!==""?e.kcal:(exKcal(e)||""))}" placeholder="${last&&last.kcal?esc(last.kcal):"kcal"}"><span>kcal</span></div>` : ""}
     ${c ? `<textarea id="note-${i}" class="ex-note" data-note="${i}" rows="2" placeholder="Commentaire (programme, niveau, ressenti…)" aria-label="Commentaire pour ${esc(key(e.nom))}">${esc(e.note||"")}</textarea>` : ""}
   </section>`;
@@ -648,10 +665,12 @@ function viewProg(){
     const pts = f.map(s=>{ const e=(s.exercices||[]).find(e=>key(e.nom)===progEx); if(!e) return null;
       const ser=(e.series||[]).filter(x=>x.reps); if(!ser.length) return null;
       const min = ser.reduce((t,x)=>t+(+x.reps||0),0), km = exKm(e), cal = exKcal(e);
-      return {t:s.debut, min, km, cal};
+      return {t:s.debut, min, km, cal, pace: exPace(e)};
     }).filter(Boolean);
+    const paces = pts.map(p=>p.pace).filter(v=>v>0);
+    const totKm = pts.reduce((t,p)=>t+p.km,0), totMinKm = pts.filter(p=>p.km>0).reduce((t,p)=>t+p.min,0);
     const useKm = pts.some(p=>p.km>0);
-    pts.forEach(p=>{ p.e = useKm ? (inM(progEx) ? Math.round(p.km*1000) : p.km) : p.min; p.tip = `${fmtShort(p.t)} : ${p.min} min${p.km?` · ${fmtDist(progEx, p.km)}`:""}${p.cal?` · ${p.cal} kcal`:""}`; });
+    pts.forEach(p=>{ p.e = useKm ? (inM(progEx) ? Math.round(p.km*1000) : p.km) : p.min; p.tip = `${fmtShort(p.t)} : ${p.min} min${p.km?` · ${fmtDist(progEx, p.km)}`:""}${p.cal?` · ${p.cal} kcal`:""}${p.pace?` · ${fmtPace(p.pace)}/km`:""}`; });
     return `<div class="stack">${progSelect(names)}
       <div class="records four">
         <div class="rec"><span class="label">Durée max</span><b class="num">${Math.max(0,...pts.map(p=>p.min))} min</b></div>
@@ -659,6 +678,8 @@ function viewProg(){
         <div class="rec"><span class="label">Calories max</span><b class="num">${Math.max(0,...pts.map(p=>p.cal))} kcal</b></div>
         <div class="rec"><span class="label">Distance cumulée</span><b class="num">${fmtDist(progEx, pts.reduce((t,p)=>t+p.km,0))}</b></div>
         <div class="rec"><span class="label">Calories cumulées</span><b class="num">${pts.reduce((t,p)=>t+p.cal,0).toLocaleString("fr-FR")} kcal</b></div>
+        <div class="rec"><span class="label">Allure moyenne</span><b class="num">${totKm ? fmtPace(totMinKm*60/totKm)+" /km" : "—"}</b></div>
+        <div class="rec"><span class="label">Meilleure moyenne</span><b class="num">${paces.length ? fmtPace(Math.min(...paces))+" /km" : "—"}</b></div>
         <div class="rec"><span class="label">Séances</span><b class="num">${pts.length}</b></div>
       </div>
       <div class="chart">${chart(pts, useKm ? (inM(progEx) ? "Distance (m)" : "Distance (km)") : "Durée (min)")}</div>
@@ -919,13 +940,13 @@ document.addEventListener("click", ev => {
 document.addEventListener("input", ev => {
   const el = ev.target, s = current();
   if (el.dataset.efield && s){ const f = el.dataset.efield; sessions[s.id].exercices[+el.dataset.i][f] = f==="kcal" ? el.value.replace(/[^\d]/g,"") : el.dataset.unit==="m" ? (el.value.replace(/[^\d]/g,"") ? String(+el.value.replace(/[^\d]/g,"")/1000) : "") : el.value.replace(",",".").replace(/[^\d.]/g,""); save(s.id);
-    const bs = document.querySelectorAll(".sess-head .meta b"); if (bs[2]) bs[2].textContent = kcal(sessions[s.id])+" kcal"; return; }
+    const bs = document.querySelectorAll(".sess-head .meta b"); if (bs[2]) bs[2].textContent = kcal(sessions[s.id])+" kcal"; refreshPace(s.id, +el.dataset.i); return; }
   if (el.dataset.note !== undefined && s){ sessions[s.id].exercices[+el.dataset.note].note = el.value; save(s.id); return; }
   if (el.id==="planName" && planEdit && sessions[planEdit]){ sessions[planEdit].nom = el.value; save(planEdit); const t = $("#planTitle"); if (t) t.textContent = sessName(sessions[planEdit]); return; }
   if (el.id==="newEx"){ $("#sugg").innerHTML = suggestions(el.value); return; }
   if (el.dataset.f && s){
     sessions[s.id].exercices[+el.dataset.i].series[+el.dataset.j][el.dataset.f] = el.value.replace(",",".").replace(/[^\d.]/g,"");
-    save(s.id); refreshCumul(s.id, +el.dataset.i);
+    save(s.id); refreshCumul(s.id, +el.dataset.i); refreshPace(s.id, +el.dataset.i);
     const meta = document.querySelector(".sess-head .meta");
     if (meta) meta.querySelectorAll("b")[0].textContent = nbSeries(sessions[s.id]), meta.querySelectorAll("b")[1].textContent = fmtKg(volume(sessions[s.id]))+" kg"; const bs = meta && meta.querySelectorAll("b"); if (bs && bs[2]) bs[2].textContent = kcal(sessions[s.id])+" kcal";
   }
